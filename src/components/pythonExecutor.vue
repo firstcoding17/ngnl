@@ -29,7 +29,7 @@ export default {
           },
           {
             headers: { "Content-Type": "application/json" },
-          }
+          },
         );
 
         console.log("✅ Response received:", response.data);

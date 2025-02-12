@@ -45,7 +45,7 @@ export default {
     },
     addRow() {
       this.localTableData.rows.push(
-        new Array(this.localTableData.columns.length).fill("")
+        new Array(this.localTableData.columns.length).fill(""),
       );
       this.emitUpdate();
     },
@@ -55,7 +55,7 @@ export default {
     },
     addColumn() {
       this.localTableData.columns.push(
-        `Column ${this.localTableData.columns.length + 1}`
+        `Column ${this.localTableData.columns.length + 1}`,
       );
       this.localTableData.rows.forEach((row) => row.push(""));
 

@@ -1,4 +1,4 @@
-# swwseos_client
+# swwseos
 
 ## Project setup
 ```

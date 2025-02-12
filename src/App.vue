@@ -80,6 +80,16 @@ export default {
     TableComponent,
   },
   methods: {
+    addLoadedFile(fileData) {
+      const newTab = {
+        id: Date.now(),
+        name: `File ${this.tabs.length + 1}`,
+        data: fileData, // ✅ 로드한 데이터를 탭에 추가
+      };
+      this.tabs.push(newTab);
+      this.activeTab = this.tabs.length - 1;
+    },
+
     startResize(event) {
       const startY = event.clientY;
       const startHeight = this.$refs.tableWrapper.offsetHeight;
@@ -101,7 +111,7 @@ export default {
     },
     toggleSidebar(componentName) {
       const selectedComponent = markRaw(
-        this.getSidebarComponent(componentName)
+        this.getSidebarComponent(componentName),
       ); // ✅ markRaw 적용
 
       if (
