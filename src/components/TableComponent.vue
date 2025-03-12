@@ -32,16 +32,19 @@
 <script>
 export default {
   props: {
-    tableData: Object, // 부모로부터 전달받은 테이블 데이터 (읽기 전용)
+    tableData: {
+      type: Object,
+      required: true,
+    },
   },
   data() {
     return {
-      localTableData: JSON.parse(JSON.stringify(this.tableData)), // ✅ props 복사해서 로컬에서 수정
+      localTableData: { columns: [], rows: [] }, // ✅ 초기 데이터 구조 정의
     };
   },
   methods: {
     emitUpdate() {
-      this.$emit("update-data", this.localTableData); // ✅ 변경된 데이터를 부모에게 전달
+      this.$emit("update-data", this.localTableData); // ✅ 부모에게 변경된 데이터를 전달
     },
     addRow() {
       this.localTableData.rows.push(
@@ -58,28 +61,26 @@ export default {
         `Column ${this.localTableData.columns.length + 1}`,
       );
       this.localTableData.rows.forEach((row) => row.push(""));
-
-      // ✅ 컬럼 추가 시 테이블 크기 증가
-      this.$nextTick(() => {
-        const table = this.$el.querySelector("table");
-        if (table) {
-          table.style.minWidth = `${table.offsetWidth + 120}px`; // ✅ 컬럼 추가 시 120px 증가
-        }
-      });
-
       this.emitUpdate();
+    },
+    initializeLocalData() {
+      // ✅ tableData를 localTableData에 복사
+      this.localTableData = JSON.parse(JSON.stringify(this.tableData));
     },
   },
   watch: {
     tableData: {
-      handler(newData) {
-        this.localTableData = JSON.parse(JSON.stringify(newData)); // ✅ 부모 데이터 변경 시 업데이트
+      handler() {
+        console.log("📊 데이터 업데이트 감지:", this.tableData);
+        this.initializeLocalData(); // ✅ 데이터 초기화 함수 호출
       },
+      immediate: true, // ✅ 컴포넌트 초기화 시에도 실행
       deep: true,
     },
   },
 };
 </script>
+
 <style>
 .table-container {
   width: 100%;
@@ -90,7 +91,7 @@ export default {
 table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: auto; /* ✅ 셀 크기 자동 확장 */
+  table-layout: auto;
 }
 
 th,
@@ -99,7 +100,7 @@ td {
   padding: 8px;
   text-align: left;
   min-width: 100px;
-  white-space: nowrap; /* ✅ 텍스트 길면 자동 확장 */
+  white-space: nowrap;
 }
 
 input {

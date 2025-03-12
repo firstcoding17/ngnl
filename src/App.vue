@@ -18,6 +18,7 @@
         :is="activeSidebarComponent"
         v-if="isSidebarOpen"
         @create-new-file="createNewTab"
+        @file-loaded="handleFileLoaded"
       />
     </aside>
 
@@ -38,7 +39,11 @@
     <!-- 사이드바 -->
     <aside v-if="isSidebarOpen" class="sidebar">
       <button class="close-btn" @click="closeSidebar">Close</button>
-      <component :is="activeSidebarComponent" @create-new-file="createNewTab" />
+      <component
+        :is="activeSidebarComponent"
+        @create-new-file="createNewTab"
+        @file-loaded="handleFileLoaded"
+      />
     </aside>
 
     <!-- 메인 콘텐츠 (스크롤바 1개로 통합) -->
@@ -80,16 +85,6 @@ export default {
     TableComponent,
   },
   methods: {
-    addLoadedFile(fileData) {
-      const newTab = {
-        id: Date.now(),
-        name: `File ${this.tabs.length + 1}`,
-        data: fileData, // ✅ 로드한 데이터를 탭에 추가
-      };
-      this.tabs.push(newTab);
-      this.activeTab = this.tabs.length - 1;
-    },
-
     startResize(event) {
       const startY = event.clientY;
       const startHeight = this.$refs.tableWrapper.offsetHeight;
@@ -139,6 +134,14 @@ export default {
     closeSidebar() {
       this.isSidebarOpen = false;
       this.activeSidebarComponent = null;
+    },
+    handleFileLoaded(data) {
+      console.log("📊 로드된 파일 데이터:", data);
+
+      if (this.tabs.length > 0) {
+        // ✅ 현재 활성화된 탭에 데이터를 저장
+        this.tabs[this.activeTab].data = data;
+      }
     },
     createNewTab() {
       const newTab = {
