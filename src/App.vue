@@ -19,6 +19,7 @@
         v-if="isSidebarOpen"
         @create-new-file="createNewTab"
         @file-loaded="handleFileLoaded"
+        :table-data="tabs[activeTab]?.data"
       />
     </aside>
 
@@ -43,6 +44,7 @@
         :is="activeSidebarComponent"
         @create-new-file="createNewTab"
         @file-loaded="handleFileLoaded"
+        :table-data="tabs[activeTab]?.data"
       />
     </aside>
 

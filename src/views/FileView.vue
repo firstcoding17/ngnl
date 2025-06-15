@@ -11,6 +11,8 @@
       />
       <button @click="triggerFileUpload">Load File</button>
       <button @click="saveFile">Save File</button>
+      <button @click="saveFile('csv')">Save as CSV</button>
+      <button @click="saveFile('excel')">Save as Excel</button>
       <button @click="createNewFile">New File</button>
     </div>
     <p v-if="loading">📂 파일 업로드 중...</p>
@@ -20,11 +22,19 @@
 
 <script>
 import axios from "axios";
+import * as XLSX from "xlsx";
 
 export default {
+  props: {
+    tableData: {
+      type: Object,
+      default: () => null,
+    },
+  },
   data() {
     return {
-      fileContent: "", // 파일 내용을 저장하는 변수
+      localTableData: null,
+      fileContent: "", // 사용하지 않으면 이것도 제거 가능
       loading: false,
       error: null,
     };
@@ -65,7 +75,7 @@ export default {
         );
 
         console.log("📊 Python 처리 결과:", processResponse.data);
-
+        this.localTableData = processResponse.data;
         this.$emit("file-loaded", processResponse.data);
       } catch (err) {
         this.error = "파일 업로드 또는 처리 실패 😢";
@@ -74,16 +84,41 @@ export default {
         this.loading = false;
       }
     },
-    saveFile() {
-      // 현재 파일 내용을 저장
-      const blob = new Blob([this.fileContent], { type: "text/plain" });
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = "newfile.txt";
-      link.click();
+    saveFile(format = "csv") {
+      console.log("📦 저장할 데이터 확인:", this.localTableData); // ✅ 추가
+      if (!this.localTableData) {
+        alert("저장할 데이터가 없습니다.");
+        return;
+      }
+      const { columns, rows } = this.localTableData; // ✅
+      const data = [columns, ...rows]; // ✅ 컬럼 + 데이터 합치기
+
+      if (format === "csv") {
+        const csvContent = data.map((row) => row.join(",")).join("\n");
+        const blob = new Blob([csvContent], { type: "text/csv" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = "saved_data.csv";
+        link.click();
+      } else if (format === "excel") {
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+        XLSX.writeFile(wb, "saved_data.xlsx");
+      }
     },
     createNewFile() {
       this.$emit("create-new-file"); // ✅ App.vue로 이벤트 전송
+    },
+  },
+  watch: {
+    tableData: {
+      immediate: true,
+      deep: true,
+      handler(newVal) {
+        console.log("👀 tableData 변경 감지:", newVal); // ✅ 로그 추가
+        this.localTableData = JSON.parse(JSON.stringify(newVal)); // 깊은 복사
+      },
     },
   },
 };
