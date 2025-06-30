@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stat View</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+</head>
+<body class="p-4">
+  <div id="statview">
+    <input type="file" @change="loadCsv" class="mb-4" />
+    <button v-if="columns.length" @click="showPopup = true" class="bg-blue-500 text-white px-4 py-2">기초 통계량</button>
+
+    <div v-if="showPopup" class="fixed inset-0 flex items-center justify-center bg-gray-700 bg-opacity-50">
+      <div class="bg-white p-4 rounded w-96">
+        <h2 class="text-xl mb-2">통계 설정</h2>
+        <div class="mb-2">
+          <label v-for="stat in statOptions" :key="stat.value" class="block">
+            <input type="checkbox" v-model="selectedStats" :value="stat.value" /> {{ stat.label }}
+          </label>
+        </div>
+        <div class="mb-2">
+          <label class="block mb-1">분석 열 선택</label>
+          <select multiple v-model="selectedColumns" class="w-full border">
+            <option v-for="col in columns" :key="col" :value="col">{{ col }}</option>
+          </select>
+        </div>
+        <div class="text-right">
+          <button @click="runStats" class="bg-green-500 text-white px-3 py-1 mr-2">실행</button>
+          <button @click="showPopup = false" class="bg-gray-300 px-3 py-1">닫기</button>
+        </div>
+      </div>
+    </div>
+
+    <table v-if="Object.keys(results).length" class="mt-4 table-auto border-collapse border">
+      <thead>
+        <tr>
+          <th class="border px-2 py-1">항목</th>
+          <th v-for="col in selectedColumns" :key="col" class="border px-2 py-1">{{ col }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="stat in selectedStats" :key="stat">
+          <td class="border px-2 py-1">{{ statLabels[stat] }}</td>
+          <td v-for="col in selectedColumns" :key="col" class="border px-2 py-1">{{ results[col][stat] }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <script type="module" src="statview.js"></script>
+</body>
+</html>
