@@ -7,10 +7,17 @@
     </select>
 
     <div class="analysis-actions">
-      <button @click="runBasicStat">기초 통계량</button>
+      <button @click="openStatsModal">기초 통계량</button>
       <button @click="runDistribution">분포 시각화</button>
       <button @click="runCorrelation">상관 분석</button>
     </div>
+
+    <BasicStatsModal
+      v-if="showModal"
+      :visible="showModal"
+      :table-data="tableData"
+      @close="showModal = false"
+    />
 
     <div v-if="result">
       <pre>{{ result }}</pre>
@@ -23,25 +30,30 @@
 </template>
 
 <script>
+import BasicStatsModal from "../components/BasicStatsModal.vue";
+
 export default {
   name: "StatView",
-  props: ["columns"],
+  components: { BasicStatsModal },
+  props: {
+    tableData: Object,
+  },
   data() {
     return {
       selectedColumn: null,
       result: null,
       imageUrl: null,
+      showModal: false,
     };
   },
+  computed: {
+    columns() {
+      return this.tableData?.columns || [];
+    },
+  },
   methods: {
-    async runBasicStat() {
-      const res = await fetch("http://localhost:5000/stat/basic", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ column: this.selectedColumn }),
-      });
-      this.result = await res.json();
-      this.imageUrl = null;
+    openStatsModal() {
+      this.showModal = true;
     },
     async runDistribution() {
       const res = await fetch("http://localhost:5000/stat/distribution", {
