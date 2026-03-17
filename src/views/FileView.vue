@@ -1,6 +1,11 @@
 <template>
   <div class="file-view">
     <h1>File Management</h1>
+    <div class="legacy-nav">
+      <router-link to="/legacy/file">File</router-link>
+      <router-link to="/legacy/graph">Graph</router-link>
+      <router-link to="/legacy/stat">Stat</router-link>
+    </div>
     <div class="file-actions">
       <input
         type="file"
@@ -15,14 +20,28 @@
       <button @click="saveFile('excel')">Save as Excel</button>
       <button @click="createNewFile">New File</button>
     </div>
-    <p v-if="loading">📂 파일 업로드 중...</p>
+    <p v-if="loading">Uploading file...</p>
     <p v-if="error" class="error">{{ error }}</p>
+
+    <div v-if="localTableData?.columns?.length" class="dataset-ready">
+      <p>
+        Dataset loaded:
+        <b>{{ localTableData.rows?.length || 0 }}</b> rows /
+        <b>{{ localTableData.columns?.length || 0 }}</b> columns
+      </p>
+      <div class="next-actions">
+        <button @click="goGraph">Open Graph View</button>
+        <button @click="goStat">Open Stat View</button>
+      </div>
+    </div>
   </div>
 </template>
 
 <script>
-import axios from "axios";
+import http from "@/api/http";
 import * as XLSX from "xlsx";
+
+const LEGACY_DATA_KEY = "legacy_table_data";
 
 export default {
   props: {
@@ -34,14 +53,30 @@ export default {
   data() {
     return {
       localTableData: null,
-      fileContent: "", // 사용하지 않으면 이것도 제거 가능
-      loading: false,
+      fileContent: "", loading: false,
       error: null,
     };
   },
   methods: {
+    normalizeRows(rows, columns) {
+      if (!Array.isArray(rows)) return [];
+      return rows.map((row) => {
+        if (Array.isArray(row)) return row;
+        return columns.map((column) => row?.[column] ?? "");
+      });
+    },
+    goGraph() {
+      this.$router.push("/legacy/graph");
+    },
+    goStat() {
+      this.$router.push("/legacy/stat");
+    },
+    promptNextView() {
+      const moveToGraph = window.confirm("Dataset loaded. Open Graph View now?");
+      if (moveToGraph) this.goGraph();
+    },
     triggerFileUpload() {
-      // ✅ 숨겨진 input 클릭하여 파일 선택 창 열기
+      // Open hidden file input
       this.$refs.fileInput.click();
     },
     async handleFileUpload(event) {
@@ -51,48 +86,54 @@ export default {
       this.loading = true;
       this.error = null;
 
-      // FormData 생성 후 파일 추가
+      // Build multipart form data
       const formData = new FormData();
       formData.append("file", file);
 
       try {
-        // ✅ 1. 파일 업로드 요청 (`/api/upload`)
-        console.log("📤 파일 업로드 중...");
-        const uploadResponse = await axios.post(
-          "http://localhost:5000/api/upload",
+        // 1) Upload file (`/api/upload`)
+        console.log("Uploading file...");
+        const uploadResponse = await http.post(
+          "/api/upload",
           formData,
           { headers: { "Content-Type": "multipart/form-data" } },
         );
 
-        console.log("📂 파일 업로드 성공:", uploadResponse.data);
+        console.log("Upload complete:", uploadResponse.data);
 
-        // ✅ 2. 업로드된 파일을 처리하도록 `/api/process` 요청 (JSON 데이터 전송)
-        console.log("⚙️ 파일 처리 중...");
-        const processResponse = await axios.post(
-          "http://localhost:5000/api/process",
-          { filename: uploadResponse.data.filename }, // ✅ FormData 대신 JSON 사용
+        // 2) Process uploaded file (`/api/process`)
+        console.log("Processing file...");
+        const processResponse = await http.post(
+          "/api/process",
+          { filename: uploadResponse.data.filename },
           { headers: { "Content-Type": "application/json" } },
         );
 
-        console.log("📊 Python 처리 결과:", processResponse.data);
-        this.localTableData = processResponse.data;
-        this.$emit("file-loaded", processResponse.data);
+        console.log("Python process result:", processResponse.data);
+        const payload = processResponse.data?.data ?? processResponse.data;
+        if (!payload?.columns || !payload?.rows) {
+          throw new Error("Invalid process response");
+        }
+        this.localTableData = { columns: payload.columns, rows: payload.rows };
+        localStorage.setItem(LEGACY_DATA_KEY, JSON.stringify(this.localTableData));
+        this.$emit("file-loaded", this.localTableData);
+        this.promptNextView();
       } catch (err) {
-        this.error = "파일 업로드 또는 처리 실패 😢";
+        this.error = "File upload or processing failed.";
         console.error(err);
       } finally {
         this.loading = false;
       }
     },
     saveFile(format = "csv") {
-      console.log("📦 저장할 데이터 확인:", this.localTableData); // ✅ 추가
+      console.log("Data to save:", this.localTableData);
       if (!this.localTableData) {
-        alert("저장할 데이터가 없습니다.");
+        alert("No data to save.");
         return;
       }
-      const { columns, rows } = this.localTableData; // ✅
-      const data = [columns, ...rows]; // ✅ 컬럼 + 데이터 합치기
-
+      const { columns, rows } = this.localTableData;
+      const normalizedRows = this.normalizeRows(rows, columns);
+      const data = [columns, ...normalizedRows];
       if (format === "csv") {
         const csvContent = data.map((row) => row.join(",")).join("\n");
         const blob = new Blob([csvContent], { type: "text/csv" });
@@ -108,7 +149,7 @@ export default {
       }
     },
     createNewFile() {
-      this.$emit("create-new-file"); // ✅ App.vue로 이벤트 전송
+      this.$emit("create-new-file");
     },
   },
   watch: {
@@ -116,8 +157,8 @@ export default {
       immediate: true,
       deep: true,
       handler(newVal) {
-        console.log("👀 tableData 변경 감지:", newVal); // ✅ 로그 추가
-        this.localTableData = JSON.parse(JSON.stringify(newVal)); // 깊은 복사
+        console.log("tableData changed:", newVal);
+        this.localTableData = JSON.parse(JSON.stringify(newVal));
       },
     },
   },
@@ -129,6 +170,23 @@ export default {
 }
 .file-actions {
   margin-bottom: 20px;
+}
+.legacy-nav {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.legacy-nav a {
+  border: 1px solid #ddd;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 13px;
+  color: #333;
+  text-decoration: none;
+}
+.legacy-nav a.router-link-active {
+  border-color: #2563eb;
+  color: #1d4ed8;
 }
 .file-actions button {
   margin-right: 10px;
@@ -146,5 +204,16 @@ export default {
 .error {
   color: red;
   font-weight: bold;
+}
+.dataset-ready {
+  margin-top: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f9fafb;
+  padding: 10px;
+}
+.next-actions {
+  display: flex;
+  gap: 8px;
 }
 </style>

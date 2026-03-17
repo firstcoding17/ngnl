@@ -1,5 +1,4 @@
 // @ts-nocheck
-import * as jStat from 'jstat';
 
 self.onmessage = (e) => {
   const { type, payload } = e.data;
@@ -30,6 +29,24 @@ function esc(v){
   return /[,"\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
 }
 function toNum(v){ const n = Number(String(v).replace(/[, ]/g,'')); return Number.isFinite(n)?n:NaN; }
+function mean(arr){ return arr.length ? arr.reduce((s,v)=>s+v,0)/arr.length : NaN; }
+function stdev(arr, sample=true){
+  if (!arr.length) return NaN;
+  const m = mean(arr);
+  const denom = sample ? (arr.length - 1) : arr.length;
+  if (denom <= 0) return 0;
+  const variance = arr.reduce((s,v)=> s + ((v-m)*(v-m)), 0) / denom;
+  return Math.sqrt(variance);
+}
+function quantile(arr, q){
+  if (!arr.length) return NaN;
+  const sorted = [...arr].sort((a,b)=>a-b);
+  const pos = (sorted.length - 1) * q;
+  const base = Math.floor(pos);
+  const rest = pos - base;
+  if (sorted[base + 1] !== undefined) return sorted[base] + rest * (sorted[base + 1] - sorted[base]);
+  return sorted[base];
+}
 
 function applyRecipe(_rows, r){
   let rows = structuredClone(_rows || []);
@@ -67,10 +84,10 @@ function applyRecipe(_rows, r){
     const x=rows.map(rw=>toNum(rw[c])).filter(Number.isFinite); if (x.length<3) continue;
     let lo,hi;
     if (opt.method==='iqr'){
-      const q1 = jStat.quantiles(x,[0.25])[0], q3 = jStat.quantiles(x,[0.75])[0], i = q3-q1;
+      const q1 = quantile(x, 0.25), q3 = quantile(x, 0.75), i = q3-q1;
       lo = q1 - (opt.mult??1.5)*i; hi = q3 + (opt.mult??1.5)*i;
     } else if (opt.method==='zscore'){
-      const m=jStat.mean(x), s=jStat.stdev(x,true)||1, k=opt.k??3; lo=m-k*s; hi=m+k*s;
+      const m=mean(x), s=stdev(x,true)||1, k=opt.k??3; lo=m-k*s; hi=m+k*s;
     } else continue;
     for (const row of rows){ const v=toNum(row[c]); if (Number.isFinite(v)) row[c] = Math.min(Math.max(v, lo), hi); }
   }
@@ -90,7 +107,7 @@ function applyRecipe(_rows, r){
   // scale standardize
   if (r?.scale?.standardize?.length) for (const c of r.scale.standardize){
     const v = rows.map(rw=>toNum(rw[c])); const idx=v.map((x,i)=>Number.isFinite(x)?i:-1).filter(i=>i>=0);
-    if (idx.length<2) continue; const arr=idx.map(i=>v[i]); const m=jStat.mean(arr), s=jStat.stdev(arr,true)||1;
+    if (idx.length<2) continue; const arr=idx.map(i=>v[i]); const m=mean(arr), s=stdev(arr,true)||1;
     for (const i of idx) rows[i][c] = (v[i]-m)/s;
   }
   return { rows, columns: Object.keys(rows[0] || {}) };

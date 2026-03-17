@@ -39,12 +39,12 @@ export default {
   },
   data() {
     return {
-      localTableData: { columns: [], rows: [] }, // ✅ 초기 데이터 구조 정의
+      localTableData: { columns: [], rows: [] }, // initialize local table structure
     };
   },
   methods: {
     emitUpdate() {
-      this.$emit("update-data", this.localTableData); // ✅ 부모에게 변경된 데이터를 전달
+      this.$emit("update-data", this.localTableData); // emit updated table data to parent
     },
     addRow() {
       this.localTableData.rows.push(
@@ -64,17 +64,17 @@ export default {
       this.emitUpdate();
     },
     initializeLocalData() {
-      // ✅ tableData를 localTableData에 복사
+      // Copy prop tableData into local editable state
       this.localTableData = JSON.parse(JSON.stringify(this.tableData));
     },
   },
   watch: {
     tableData: {
       handler() {
-        console.log("📊 데이터 업데이트 감지:", this.tableData);
-        this.initializeLocalData(); // ✅ 데이터 초기화 함수 호출
+        console.log("Table data updated:", this.tableData);
+        this.initializeLocalData(); // refresh local state
       },
-      immediate: true, // ✅ 컴포넌트 초기화 시에도 실행
+      immediate: true, // also run on component mount
       deep: true,
     },
   },

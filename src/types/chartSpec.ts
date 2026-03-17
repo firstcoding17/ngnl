@@ -1,6 +1,7 @@
 export type ChartType =
-  | 'bar' | 'line' | 'scatter' | 'histogram'
+  | 'bar' | 'line' | 'area' | 'scatter' | 'bubble' | 'histogram'
   | 'box' | 'violin' | 'treemap' | 'heatmap'
+  | 'pie' | 'donut' | 'funnel' | 'waterfall'
   | 'radar' | 'sankey';
 
 export interface ChartOptions {
@@ -11,14 +12,16 @@ export interface ChartOptions {
   sortCategory?: 'none' | 'alpha' | 'valueAsc' | 'valueDesc';
   tooltip?: { showX?: boolean; showY?: boolean; showCat?: boolean };
   bins?: number;             // histogram
-  agg?: 'count'|'sum'|'mean' // bar 등에서 y 없을 때 집계
+  agg?: 'count'|'sum'|'mean' // Aggregation mode when y is omitted (e.g. bar)
+  stackedArea?: boolean;
 }
 
 export interface ChartSpec {
   type: ChartType;
-  x?: string;         // x축 컬럼 (또는 카테고리)
-  y?: string;         // y축 컬럼(수치)
-  hue?: string;       // 그룹/색상 분할
+  x?: string;         // x-axis column (or category)
+  y?: string;         // y-axis numeric column
+  hue?: string;       // grouping/color split column
+  size?: string;      // marker size column (bubble)
   options?: ChartOptions;
-  filter?: Record<string, any>; // (선택) 프론트 필터
+  filter?: Record<string, any>; // (optional) frontend filter payload
 }

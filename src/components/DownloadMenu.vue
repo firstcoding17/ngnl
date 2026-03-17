@@ -1,10 +1,14 @@
-<script setup lang="ts">
+﻿<script setup>
 import { ref } from 'vue';
 import { exportCSV } from '@/services/exportCSV';
-import { exportXLSX } from '@/services/exportXLSX';
+import { exportXLSX } from '@/services/exportXlsx';
 
-const props = defineProps<{ name: string; columns: string[]; rows: any[] }>();
-const fmt = ref<'csv'|'xlsx'>('xlsx');
+const props = defineProps({
+  name: { type: String, default: 'dataset' },
+  columns: { type: Array, default: () => [] },
+  rows: { type: Array, default: () => [] }
+});
+const fmt = ref('xlsx');
 
 function download() {
   if (!props.columns?.length) return;
@@ -19,7 +23,7 @@ function download() {
       <option value="xlsx">XLSX</option>
       <option value="csv">CSV</option>
     </select>
-    <button :disabled="!columns.length" @click="download">다운로드</button>
+    <button :disabled="!columns.length" @click="download">Download</button>
   </div>
 </template>
 
@@ -27,3 +31,4 @@ function download() {
 button { padding:6px 10px; border:1px solid #ddd; border-radius:8px; cursor:pointer; }
 select { padding:6px 10px; border:1px solid #ddd; border-radius:8px; }
 </style>
+

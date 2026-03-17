@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div>
     <button @click="executePythonScript">Run Python Script</button>
     <div v-if="result">
@@ -9,7 +9,7 @@
 </template>
 
 <script>
-import axios from "axios";
+import { runPythonScript } from "@/api/pythonApi";
 
 export default {
   data() {
@@ -20,22 +20,11 @@ export default {
   methods: {
     async executePythonScript() {
       try {
-        console.log("🚀 Sending API request...");
-        const response = await axios.post(
-          "http://localhost:5000/api/run-python",
-          {
-            scriptName: "my_script",
-            args: [1, 2, 3, 4, 5],
-          },
-          {
-            headers: { "Content-Type": "application/json" },
-          },
-        );
-
-        console.log("✅ Response received:", response.data);
-        this.result = response.data.output;
+        console.log("Sending API request...");
+        this.result = await runPythonScript("my_script", [1, 2, 3, 4, 5]);
+        console.log("Response received:", this.result);
       } catch (error) {
-        console.error("❌ Error executing Python script:", error);
+        console.error("Error executing Python script:", error);
       }
     },
   },

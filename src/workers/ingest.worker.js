@@ -14,7 +14,7 @@ self.onmessage = async (e) => {
       if (ext === 'xlsx' || /sheet/.test(file.type))   return parseXLSXFile(file);
       if (ext === 'json' || /application\/json/.test(file.type)) return parseJSONFile(file);
 
-      // 모르면 CSV로 시도
+      // Fallback to CSV parsing when type is unknown.
       return parseCSVFile(file);
     }
 
@@ -33,7 +33,7 @@ self.onmessage = async (e) => {
         return postOK('PASTE', rows);
       }
 
-      // 3) CSV/TSV 텍스트
+      // 3) CSV/TSV text
       const sep = text.includes('\t') ? '\t' : ',';
       const parsed = Papa.parse(text, { header: true, delimiter: sep, skipEmptyLines: true });
       return postOK('PASTE', parsed.data);
@@ -53,7 +53,7 @@ function parseCSVFile(file){
     worker: true,
     chunkSize: 256 * 1024,
     chunk: (res) => {
-      // Papa는 누적 바이트를 meta.cursor에 제공
+      // PapaParse provides processed byte cursor via meta.cursor.
       const processed = res?.meta?.cursor ?? 0;
       const pct = total ? Math.min(100, Math.round((processed / total) * 100)) : null;
       self.postMessage({ type:'PROGRESS', ok:true, data:{ mode:'csv', pct }});

@@ -18,7 +18,7 @@ http.interceptors.response.use(
   r => r,
   err => {
     if (err?.response?.status === 401) {
-      // 키가 없거나 틀렸음 → 키 게이트로 돌려보내기
+      // Invalid or missing key: route user to key gate
       window.dispatchEvent(new Event('beta-key-invalid'));
     }
     return Promise.reject(err);

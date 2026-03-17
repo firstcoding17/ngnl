@@ -1,6 +1,6 @@
 import http from './http';
 export async function verifyKey() {
-  // 서버의 /auth/verify 호출 → 200이면 유효
+  // Call /auth/verify; a 200 response means the key is valid.
   const { data } = await http.get('/auth/verify');
   return data?.ok === true;
 }

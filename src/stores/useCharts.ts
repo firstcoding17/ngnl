@@ -1,4 +1,4 @@
-import { db } from './db'; // 너가 만든 Dexie 인스턴스
+import { db } from './db'; // Dexie instance
 import type { ChartSpec } from '@/types/chartSpec';
 
 type ChartDoc = {
@@ -28,7 +28,7 @@ export async function listCharts(limit=50) {
 export async function loadChart(id: string) {
   // @ts-ignore
   const doc = await db.table('charts').get(id);
-  if (!doc) throw new Error('그래프가 없습니다.');
+  if (!doc) throw new Error('Chart not found.');
   return doc as ChartDoc;
 }
 export async function deleteChart(id: string) {
