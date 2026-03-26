@@ -4,6 +4,7 @@ import {
   apiUrl,
   applySessionTokenFromHeaders,
   clearStoredAuth,
+  clearStoredSession,
   ensureClientId,
   getApiKey,
   getSessionToken,
@@ -107,6 +108,6 @@ export function logoutOnExit() {
       keepalive: true,
     }).catch(() => {});
   }
-  clearStoredAuth();
+  clearStoredSession();
   setVerified(false);
 }
