@@ -1,8 +1,11 @@
 <script setup>
 import { ref, watch, computed, nextTick } from 'vue';
 import { AgGridVue } from 'ag-grid-vue3';
+import { ModuleRegistry, AllCommunityModule } from 'ag-grid-community';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
+
+ModuleRegistry.registerModules([AllCommunityModule]);
 
 const props = defineProps({
   rows: { type: Array, default: () => [] },
@@ -21,7 +24,11 @@ watch(()=>props.columns, (cols)=>{
   }));
 },{ immediate:true });
 
-watch(()=>props.rows, (r)=>{ rowData.value = structuredClone(r||[]); },{ immediate:true });
+watch(() => props.rows, (r) => {
+  rowData.value = Array.isArray(r)
+    ? r.map((row) => (row && typeof row === 'object' ? { ...row } : row))
+    : [];
+}, { immediate:true });
 
 // Selected column based on current cell range
 function currentCol() {

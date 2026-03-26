@@ -150,6 +150,13 @@ function detectFileMode(file) {
   return 'csv';
 }
 
+function makeId() {
+  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+  return `id_${Date.now()}_${Math.random().toString(16).slice(2)}_${Math.random().toString(16).slice(2)}`;
+}
+
 function finalizeParsedRows(rows, preferredColumns = []) {
   const safeRows = Array.isArray(rows) ? rows : [];
   const firstRow = safeRows[0] && typeof safeRows[0] === 'object' ? safeRows[0] : {};
@@ -316,7 +323,7 @@ function syncActiveTabFromState() {
 }
 
 function openDatasetInWorkspace({ name, rows: nextRows, columns: nextColumns, dirty: markDirty, datasetId }) {
-  const tabId = crypto.randomUUID();
+  const tabId = makeId();
   const tab = {
     tabId,
     datasetId,
@@ -788,7 +795,7 @@ async function onMcpFocusPanel(payload){
     if (payload?.request && typeof payload.request === 'object') {
       mlPreset.value = {
         ...(payload || {}),
-        key: crypto.randomUUID(),
+        key: makeId(),
       };
     }
     scrollToPanel(mlPanelRef);
@@ -799,7 +806,7 @@ async function onMcpOpenStat(payload){
   await focusWorkspacePanel(payload);
   statPreset.value = {
     ...(payload || {}),
-    key: crypto.randomUUID(),
+    key: makeId(),
   };
   await nextTick();
   scrollToPanel(resolveStatPanelRef(payload?.statPanel));
