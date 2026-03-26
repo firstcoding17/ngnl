@@ -18,7 +18,7 @@ function download() {
 </script>
 
 <template>
-  <div class="flex items-center gap-2">
+  <div class="download-menu">
     <select v-model="fmt">
       <option value="xlsx">XLSX</option>
       <option value="csv">CSV</option>
@@ -28,7 +28,30 @@ function download() {
 </template>
 
 <style scoped>
-button { padding:6px 10px; border:1px solid #ddd; border-radius:8px; cursor:pointer; }
-select { padding:6px 10px; border:1px solid #ddd; border-radius:8px; }
+.download-menu {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+button {
+  padding: 7px 11px;
+  border: 1px solid #cbd5df;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+
+select {
+  padding: 7px 11px;
+  border: 1px solid #cbd5df;
+  border-radius: 8px;
+  background: #fff;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
 </style>
 

@@ -36,10 +36,13 @@ const corrHeatRows = ref(null);
 const corrHeatCols = ref(null);
 const corrHeatPreset = ref(null);
 const pendingDataset = ref(null);
+const hasWorkspaceData = computed(() => rows.value.length > 0 || columns.value.length > 0);
+const hasFullDataset = computed(() => rows.value.length > 0 && columns.value.length > 0);
 const badge = computed(() => {
-  if (pendingDataset.value) return 'dataset pending apply';
+  if (status.value === 'parsing') return 'reading file';
   if (tempMode.value && tempKey.value) return 'temp cached';
-  return status.value==='done' ? 'data on desk!' : '';
+  if (hasWorkspaceData.value) return 'workspace ready';
+  return '';
 });
 const toastRef = ref(null);
 const gridRef = ref(null);
@@ -70,6 +73,13 @@ const profileSummary = ref({
   topCorrCount: 0,
   topAnovaCount: 0,
 });
+const logEntryCount = computed(() =>
+  log.value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .length
+);
 const workspaceDatasetSummaries = computed(() =>
   workspaceTabs.value.map((tab) => ({
     tabId: tab.tabId,
@@ -197,19 +207,18 @@ function stageDataset({
   markDirty = true,
   datasetId = undefined,
 }) {
-  pendingDataset.value = {
+  pendingDataset.value = null;
+  openDatasetInWorkspace({
     name,
     rows: nextRows,
     columns: nextColumns,
-    source,
-    datasetId,
     dirty: markDirty,
-    count: nextRows.length,
-    memMB: estimateMB(nextRows),
-  };
+    datasetId,
+  });
   status.value = 'done';
   progress.value = { mode: '', pct: null };
-  append(`Dataset ready (${source}): ${nextRows.length} rows, ${nextColumns.length} cols. Click Apply to activate.`);
+  append(`Dataset loaded (${source}): ${nextRows.length} rows, ${nextColumns.length} cols.`);
+  toastRef.value?.show('Dataset loaded.');
 }
 
 function applyPendingDataset() {
@@ -568,42 +577,108 @@ function onProfileSummary(summary){
 </script>
 
 <template>
-  <div class="p-4 space-y-3">
-    <div class="flex items-center gap-2">
-      <h2 class="text-xl font-semibold">Data Inlet (Local)</h2>
-  <span v-if="badge" class="text-xs px-2 py-1 rounded bg-green-100 text-green-700 border border-green-300">
-    {{ badge }}
-  </span>
+  <div class="workspace-shell">
+    <section class="workspace-card workspace-card--hero">
+      <div class="workspace-hero">
+        <div>
+          <p class="workspace-hero__kicker">Data Desk</p>
+          <h2>업로드한 데이터를 바로 확인하고 편집할 수 있는 작업공간입니다.</h2>
+          <p class="workspace-hero__subtitle">
+            CSV, XLSX, JSON 파일을 올리거나 붙여넣으면 즉시 현재 화면에 반영되고, 같은 흐름에서 저장과 그래프/통계 작업으로 이어집니다.
+          </p>
+        </div>
+        <div class="workspace-hero__meta">
+          <span v-if="badge" class="workspace-badge">{{ badge }}</span>
+          <div class="workspace-hero__name">
+            <b>{{ currentName }}</b><span v-if="dirty">*</span>
+          </div>
+          <div class="workspace-hero__stats">
+            <span>Rows <b>{{ rows.length }}</b></span>
+            <span>Cols <b>{{ columns.length }}</b></span>
+            <span v-if="rows.length">Memory <b>{{ meta.memMB.toFixed(2) }}MB</b></span>
+          </div>
+        </div>
+      </div>
+    </section>
 
-  <div class="ml-3 text-sm text-gray-600">
-    <b>{{ currentName }}</b><span v-if="dirty">*</span>
-    <span class="ml-2 text-xs text-gray-500">
-      (rows {{ rows.length }} / cols {{ columns.length }}<template v-if="rows.length"> / ~{{ meta.memMB.toFixed(2) }}MB</template>)
-    </span>
-  </div>
+    <section class="workspace-card workspace-card--toolbar">
+      <div class="toolbar-row">
+        <div class="toolbar-group">
+          <button type="button" class="btn-primary" @click="openNewDataset">+ New dataset</button>
+          <button type="button" :disabled="!hasWorkspaceData" @click="saveCurrent">Save current dataset</button>
+          <button type="button" :disabled="!workspaceTabs.length" @click="saveAllTabs">Save all tabs</button>
+          <button type="button" :disabled="!workspaceTabs.length" @click="closeAllTabs">Close all tabs</button>
+        </div>
+        <div class="toolbar-group toolbar-group--right">
+          <label class="toolbar-check">
+            <input type="checkbox" v-model="tempMode" />
+            <span>Temp upload (session only)</span>
+          </label>
+          <button type="button" :disabled="!tempKey || tempBusy" @click="endSession">Delete temp cache</button>
+          <button type="button" :disabled="!hasWorkspaceData" @click="gridRef?.clearFilters()">Clear filters</button>
+          <button type="button" :disabled="!rows.length" @click="downloadXlsx">Download XLSX</button>
+          <div class="toolbar-download">
+            <DownloadMenu :name="currentName" :columns="columns" :rows="rows" />
+          </div>
+        </div>
+      </div>
+    </section>
 
+    <section
+      class="workspace-card upload-card"
+      :class="{ 'upload-card--drag': dragOver }"
+      @dragover.prevent="dragOver = true"
+      @dragleave.prevent="dragOver = false"
+      @drop="onDrop"
+    >
+      <div class="upload-card__copy">
+        <h3>Load File</h3>
+        <p>파일을 드래그하거나 직접 선택하세요. CSV/JSON 텍스트는 <b>Ctrl+V</b>로 붙여넣어도 됩니다.</p>
+        <div class="upload-card__actions">
+          <button type="button" class="btn-primary" @click="fileInput?.click()">Choose file</button>
+          <span>Supported: CSV, XLSX, JSON</span>
+        </div>
+        <input
+          ref="fileInput"
+          type="file"
+          class="file-input"
+          @change="onFilePick"
+          accept=".csv,.xlsx,.json,text/csv,application/json"
+        />
+      </div>
+      <div class="upload-card__summary">
+        <div class="summary-tile">
+          <span class="summary-tile__label">Status</span>
+          <strong>{{ status === 'idle' ? 'Ready' : status }}</strong>
+        </div>
+        <div class="summary-tile">
+          <span class="summary-tile__label">Workspace</span>
+          <strong>{{ workspaceTabs.length }} tab(s)</strong>
+        </div>
+        <div class="summary-tile">
+          <span class="summary-tile__label">Temp cache</span>
+          <strong>{{ tempKey ? 'Active' : 'Off' }}</strong>
+        </div>
+      </div>
+    </section>
 
-  <div class="ml-auto flex items-center gap-2">
-    <button class="ml-2" @click="gridRef?.clearFilters()">Clear filters</button>
-    <DownloadMenu :name="currentName" :columns="columns" :rows="rows" />
-  </div>
-      <label class="ml-auto text-sm flex items-center gap-1">
-      <input type="checkbox" v-model="tempMode" />
-      Temp upload (session only)
-    </label>
-    <button v-if="tempKey" :disabled="tempBusy" @click="endSession">End session (delete)</button>
-    </div>
+    <section v-if="status === 'parsing'" class="workspace-card progress-card">
+      <div class="progress-card__bar">
+        <div
+          class="progress-card__fill"
+          :style="{
+            width: progress.pct == null ? '100%' : `${progress.pct}%`,
+            animation: progress.pct == null ? 'indet 1.2s linear infinite' : 'none'
+          }"
+        />
+      </div>
+      <div class="progress-card__meta">
+        {{ progress.mode.toUpperCase() }} {{ progress.pct == null ? '(processing...)' : `${progress.pct}%` }}
+      </div>
+    </section>
 
-    <div class="flex gap-2">
-      <button @click="openNewDataset()">+ New dataset</button>
-      <button :disabled="!rows.length && !columns.length" @click="saveCurrent()">Save current dataset</button>
-      <button :disabled="!workspaceTabs.length" @click="saveAllTabs()">Save all tabs</button>
-      <button :disabled="!workspaceTabs.length" @click="closeAllTabs()">Close all tabs</button>
-      <button :disabled="!rows.length" @click="downloadXlsx()">Download XLSX</button>
-    </div>
-
-    <div v-if="workspaceTabs.length" class="border rounded p-2 bg-gray-50">
-      <div class="text-xs text-gray-600 mb-1">Workspace tabs ({{ workspaceTabs.length }})</div>
+    <section v-if="workspaceTabs.length" class="workspace-card tabs-card">
+      <div class="tabs-card__head">Workspace tabs ({{ workspaceTabs.length }})</div>
       <div class="workspace-tabs">
         <div
           v-for="tab in workspaceTabs"
@@ -611,191 +686,557 @@ function onProfileSummary(summary){
           class="workspace-tab"
           :class="{ active: tab.tabId === activeTabId }"
         >
-          <button class="tab-main" @click="activateWorkspaceTab(tab.tabId)">
+          <button type="button" class="tab-main" @click="activateWorkspaceTab(tab.tabId)">
             <span>{{ tab.name }}</span>
             <span v-if="tab.dirty">*</span>
             <span class="tab-meta">{{ tab.rows.length }}r / {{ tab.columns.length }}c</span>
           </button>
-          <button class="tab-close" @click.stop="closeWorkspaceTab(tab.tabId)">x</button>
+          <button type="button" class="tab-close" @click.stop="closeWorkspaceTab(tab.tabId)">x</button>
         </div>
       </div>
+    </section>
+
+    <div class="workspace-layout">
+      <div class="workspace-layout__main">
+        <section class="workspace-card grid-card">
+          <div class="card-head">
+            <div>
+              <h3>Data Grid</h3>
+              <p v-if="hasWorkspaceData">파일을 올리면 바로 표에 반영되고 여기서 편집할 수 있습니다.</p>
+              <p v-else>아직 데이터가 없습니다. 파일 업로드, 붙여넣기, 새 데이터셋 생성 중 하나를 선택하세요.</p>
+            </div>
+            <div class="card-head__stats">
+              <span>Rows {{ rows.length }}</span>
+              <span>Cols {{ columns.length }}</span>
+            </div>
+          </div>
+
+          <div v-if="rows.length" class="profile-strip">
+            <div v-if="profileSummary.loading">Profile analyzing sample...</div>
+            <div v-else-if="profileSummary.error" class="profile-strip__error">
+              {{ profileSummary.error }}
+            </div>
+            <div v-else-if="profileSummary.sampleCount">
+              Sample {{ profileSummary.sampleCount }} rows / duplicates {{ profileSummary.duplicates }} /
+              corr {{ profileSummary.topCorrCount }} / anova {{ profileSummary.topAnovaCount }}
+              <span v-if="profileSummary.warnings.length">/ warnings {{ profileSummary.warnings.length }}</span>
+            </div>
+            <div v-else>Profile summary will appear after a dataset is loaded.</div>
+          </div>
+
+          <DataGrid
+            ref="gridRef"
+            :rows="rows"
+            :columns="columns"
+            @update="onGridUpdate"
+            @columns="onColumnsUpdate"
+          />
+        </section>
+
+        <section class="workspace-card log-card">
+          <div class="card-head">
+            <div>
+              <h3>Workspace Log</h3>
+              <p>불러오기, 저장, 탭 전환 같은 주요 동작을 여기서 확인할 수 있습니다.</p>
+            </div>
+            <div class="card-head__stats">
+              <span>{{ logEntryCount }} entries</span>
+            </div>
+          </div>
+          <pre>{{ log || 'No actions yet.' }}</pre>
+        </section>
+      </div>
+
+      <aside class="workspace-layout__side">
+        <RecentDatasets @open="onOpenRecent" @open-many="onOpenRecentMany" />
+        <ProfilePanel v-if="rows.length" :rows="rows" @summary="onProfileSummary" />
+      </aside>
     </div>
 
-    <div v-if="pendingDataset" class="border rounded p-3 bg-amber-50 border-amber-200 space-y-2">
-      <div class="text-sm text-amber-900">
-        New dataset is ready from <b>{{ pendingDataset.source }}</b>:
-        {{ pendingDataset.count }} rows, {{ pendingDataset.columns.length }} columns.
-        Apply to dashboard now?
-      </div>
-      <div class="flex items-center gap-2">
-        <button @click="applyPendingDataset">Apply</button>
-        <button @click="cancelPendingDataset">Cancel</button>
-      </div>
-    </div>
+    <section v-if="rows.length" class="workspace-card preview-card">
+      <details open>
+        <summary>Preview (top 20 rows)</summary>
+        <div class="preview-card__table">
+          <table>
+            <thead>
+              <tr>
+                <th v-for="c in columns" :key="c">{{ c }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(r, i) in rows.slice(0, 20)" :key="i">
+                <td v-for="c in columns" :key="c">{{ r[c] }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </section>
 
-    <div
-      class="border-2 border-dashed rounded-lg p-6 text-center"
-      :class="dragOver ? 'bg-blue-50 border-blue-400' : 'border-gray-300'"
-      @dragover.prevent="dragOver = true"
-      @dragleave.prevent="dragOver = false"
-      @drop="onDrop"
-    >
-      <p class="mb-2">Drag and drop a file here</p>
-      <button @click="fileInput?.click()">Choose file</button>
-      <input ref="fileInput" type="file" class="hidden" @change="onFilePick"
-             accept=".csv,.xlsx,.json,text/csv,application/json" />
-      <p class="mt-2 text-sm text-gray-500">Or paste CSV/JSON using <b>Ctrl+V</b></p>
-    </div>
-
-    
-    <div v-if="status==='parsing'" class="w-full bg-gray-100 rounded h-2 overflow-hidden">
-      <div class="bg-blue-500 h-2 transition-all"
-           :style="{ width: (progress.pct==null ? '100%' : progress.pct+'%'),
-                     animation: (progress.pct==null ? 'indet 1.2s linear infinite' : 'none') }">
-      </div>
-      <div class="text-xs mt-1 text-gray-600">
-        {{ progress.mode.toUpperCase() }} {{ progress.pct==null ? '(processing...)' : progress.pct + '%' }}
-      </div>
-    </div>
-
-    <div v-if="rows.length || columns.length" class="text-sm text-gray-700">
-      <span>Rows: <b>{{ rows.length }}</b></span>
-      <span>Cols: <b>{{ columns.length }}</b></span>
-      <template v-if="rows.length">
-        <span>Estimated memory: <b>{{ meta.memMB.toFixed(2) }} MB</b></span>
-      </template>
-    </div>
-
-    <div v-if="rows.length" class="text-xs border rounded p-2 bg-slate-50 text-slate-700">
-      <div v-if="profileSummary.loading">Profile: analyzing sample...</div>
-      <div v-else-if="profileSummary.error" class="text-red-600">
-        Profile: {{ profileSummary.error }} (retry by editing or reloading data)
-      </div>
-      <div v-else-if="profileSummary.sampleCount">
-        Profile sample {{ profileSummary.sampleCount }} rows:
-        duplicates {{ profileSummary.duplicates }},
-        corr pairs {{ profileSummary.topCorrCount }},
-        anova pairs {{ profileSummary.topAnovaCount }}.
-        <span v-if="profileSummary.warnings.length" class="text-amber-700">
-          Warnings {{ profileSummary.warnings.length }}.
-        </span>
-      </div>
-      <div v-else>Profile: no sample yet.</div>
-    </div>
-
-    <details v-if="rows.length" class="p-3 border rounded">
-      <summary class="font-semibold">Preview (top 20 rows)</summary>
-      <div class="overflow-auto">
-        <table class="w-full text-sm border-collapse">
-          <thead>
-            <tr>
-              <th v-for="c in columns" :key="c" class="border px-2 py-1 text-left whitespace-nowrap">{{ c }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(r,i) in rows.slice(0,20)" :key="i">
-              <td v-for="c in columns" :key="c" class="border px-2 py-1 whitespace-nowrap">{{ r[c] }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </details>
-<DataGrid
-  ref="gridRef"
-  v-if="rows.length || columns.length"
-  :rows="rows"
-  :columns="columns"
-  @update="onGridUpdate"
-  @columns="onColumnsUpdate"
-/>
-<RecipePanel
-  v-if="rows.length || columns.length"
-  :rows="rows"
-  :columns="columns"
-  @apply="onApplyRecipe"
-/>
-<div v-if="rows.length || columns.length" ref="graphPanelRef">
-  <GraphPanel
-    :rows="rows"
-    :columns="columns"
-    :override-rows="corrHeatRows"
-    :override-columns="corrHeatCols"
-    :preset-spec="corrHeatPreset"
-    @applyFilter="onGraphFilter"
-    @focusRow="onGraphFocus"
-    @closeOverride="closeCorrHeatmap"
-  />
-</div>
-<div v-if="rows.length || columns.length" ref="chartBoardRef">
-  <ChartsBoard
-    :rows="rows"
-    :columns="columns"
-    :inline-charts="inlineBoardCharts"
-    @clear-inline="clearInlineBoard"
-  />
-</div>
-<div v-if="rows.length && columns.length" ref="statsPanelRef">
-  <div ref="reportPanelRef">
-    <StatsReportPanel :rows="rows" :columns="columns" :preset="statPreset" @openChart="onOpenStatChart" />
-  </div>
-  <div ref="testsPanelRef">
-    <StatTestsPanel :rows="rows" :columns="columns" :preset="statPreset" @openChart="onOpenStatChart" />
-  </div>
-  <div ref="olsPanelRef">
-    <StatsOlsPanel :rows="rows" :columns="columns" :preset="statPreset" @openChart="onOpenStatChart" />
-  </div>
-  <div ref="corrPanelRef">
-    <StatsCorrPanel
+    <RecipePanel
+      v-if="hasWorkspaceData"
       :rows="rows"
       :columns="columns"
-      :preset="statPreset"
-      @openHeatmap="onOpenCorrHeatmap"
-      @openChart="onOpenStatChart"
+      @apply="onApplyRecipe"
     />
-  </div>
-  <div ref="advancedPanelRef">
-    <StatsAdvancedPanel :rows="rows" :columns="columns" :preset="statPreset" @openChart="onOpenStatChart" />
-  </div>
-</div>
-<div v-if="rows.length && columns.length" ref="mlPanelRef">
-  <MlPanel :rows="rows" :columns="columns" :profile-summary="profileSummary" :preset="mlPreset" />
-</div>
-<McpPanel
-  v-if="rows.length && columns.length"
-  :rows="rows"
-  :columns="columns"
-  :dataset-name="currentName"
-  :dataset-id="activeDatasetId || ''"
-  :profile-summary="profileSummary"
-  :workspace-datasets="workspaceDatasetSummaries"
-  @open-chart="onMcpOpenChart"
-  @open-chart-board="onMcpOpenChartBoard"
-  @open-stat="onMcpOpenStat"
-  @focus-panel="onMcpFocusPanel"
-/>
-  
-    <ProfilePanel v-if="rows.length" :rows="rows" @summary="onProfileSummary" />
-    <RecentDatasets @open="onOpenRecent" @open-many="onOpenRecentMany" />
+    <div v-if="hasWorkspaceData" ref="graphPanelRef">
+      <GraphPanel
+        :rows="rows"
+        :columns="columns"
+        :override-rows="corrHeatRows"
+        :override-columns="corrHeatCols"
+        :preset-spec="corrHeatPreset"
+        @applyFilter="onGraphFilter"
+        @focusRow="onGraphFocus"
+        @closeOverride="closeCorrHeatmap"
+      />
+    </div>
+    <div v-if="hasWorkspaceData" ref="chartBoardRef">
+      <ChartsBoard
+        :rows="rows"
+        :columns="columns"
+        :inline-charts="inlineBoardCharts"
+        @clear-inline="clearInlineBoard"
+      />
+    </div>
+    <div v-if="hasFullDataset" ref="statsPanelRef">
+      <div ref="reportPanelRef">
+        <StatsReportPanel :rows="rows" :columns="columns" :preset="statPreset" @openChart="onOpenStatChart" />
+      </div>
+      <div ref="testsPanelRef">
+        <StatTestsPanel :rows="rows" :columns="columns" :preset="statPreset" @openChart="onOpenStatChart" />
+      </div>
+      <div ref="olsPanelRef">
+        <StatsOlsPanel :rows="rows" :columns="columns" :preset="statPreset" @openChart="onOpenStatChart" />
+      </div>
+      <div ref="corrPanelRef">
+        <StatsCorrPanel
+          :rows="rows"
+          :columns="columns"
+          :preset="statPreset"
+          @openHeatmap="onOpenCorrHeatmap"
+          @openChart="onOpenStatChart"
+        />
+      </div>
+      <div ref="advancedPanelRef">
+        <StatsAdvancedPanel :rows="rows" :columns="columns" :preset="statPreset" @openChart="onOpenStatChart" />
+      </div>
+    </div>
+    <div v-if="hasFullDataset" ref="mlPanelRef">
+      <MlPanel :rows="rows" :columns="columns" :profile-summary="profileSummary" :preset="mlPreset" />
+    </div>
+    <McpPanel
+      v-if="hasFullDataset"
+      :rows="rows"
+      :columns="columns"
+      :dataset-name="currentName"
+      :dataset-id="activeDatasetId || ''"
+      :profile-summary="profileSummary"
+      :workspace-datasets="workspaceDatasetSummaries"
+      @open-chart="onMcpOpenChart"
+      @open-chart-board="onMcpOpenChartBoard"
+      @open-stat="onMcpOpenStat"
+      @focus-panel="onMcpFocusPanel"
+    />
 
-    <pre class="bg-gray-50 p-2 whitespace-pre-wrap text-xs">{{ log }}</pre>
-
-  <Toast ref="toastRef" />
-  
+    <Toast ref="toastRef" />
   </div>
 </template>
 
 <style scoped>
-button { padding:6px 10px; border:1px solid #ddd; border-radius:8px; cursor:pointer; }
+.workspace-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.workspace-card {
+  border: 1px solid #d6dee6;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
+}
+
+.workspace-card--hero {
+  padding: 18px 20px;
+}
+
+.workspace-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.workspace-hero__kicker {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #6b7280;
+}
+
+.workspace-hero h2 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.35;
+}
+
+.workspace-hero__subtitle {
+  margin: 10px 0 0;
+  max-width: 760px;
+  color: #5f6b7a;
+  line-height: 1.55;
+}
+
+.workspace-hero__meta {
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.workspace-badge {
+  padding: 6px 10px;
+  border: 1px solid #bbd7b0;
+  border-radius: 999px;
+  background: #edf9e8;
+  color: #25663a;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.workspace-hero__name {
+  font-size: 18px;
+}
+
+.workspace-hero__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #5f6b7a;
+  font-size: 13px;
+}
+
+.workspace-hero__stats span {
+  padding: 6px 9px;
+  border: 1px solid #e5ebf1;
+  border-radius: 999px;
+  background: #f8fafc;
+}
+
+.workspace-card--toolbar {
+  padding: 14px 16px;
+}
+
+.toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.toolbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.toolbar-group--right {
+  margin-left: auto;
+}
+
+.toolbar-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #4b5563;
+}
+
+.toolbar-download {
+  display: inline-flex;
+}
+
+.upload-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 20px;
+  border-style: dashed;
+}
+
+.upload-card--drag {
+  border-color: #2563eb;
+  background: #f5f9ff;
+}
+
+.upload-card__copy h3 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+
+.upload-card__copy p {
+  margin: 0;
+  color: #5f6b7a;
+  line-height: 1.55;
+}
+
+.upload-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.upload-card__summary {
+  min-width: 220px;
+  display: grid;
+  gap: 10px;
+}
+
+.summary-tile {
+  padding: 12px;
+  border: 1px solid #e5ebf1;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.summary-tile__label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: #6b7280;
+  text-transform: uppercase;
+}
+
+.file-input {
+  display: none;
+}
+
+.progress-card {
+  padding: 14px 16px;
+}
+
+.progress-card__bar {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: #e7edf3;
+  overflow: hidden;
+}
+
+.progress-card__fill {
+  height: 100%;
+  background: linear-gradient(90deg, #1d4ed8, #60a5fa);
+}
+
+.progress-card__meta {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #5f6b7a;
+}
+
+.tabs-card {
+  padding: 12px 14px;
+}
+
+.tabs-card__head {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #6b7280;
+  text-transform: uppercase;
+}
+
+.workspace-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2.1fr) minmax(280px, 0.9fr);
+  gap: 16px;
+}
+
+.workspace-layout__main,
+.workspace-layout__side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.grid-card,
+.log-card,
+.preview-card {
+  padding: 16px;
+}
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.card-head h3 {
+  margin: 0;
+  font-size: 19px;
+}
+
+.card-head p {
+  margin: 6px 0 0;
+  color: #5f6b7a;
+  line-height: 1.5;
+}
+
+.card-head__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: #5f6b7a;
+}
+
+.card-head__stats span {
+  padding: 5px 9px;
+  border: 1px solid #dbe4ec;
+  border-radius: 999px;
+  background: #f8fafc;
+}
+
+.profile-strip {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e5ebf1;
+  border-radius: 10px;
+  background: #f8fafc;
+  font-size: 13px;
+  color: #4b5563;
+}
+
+.profile-strip__error {
+  color: #c62828;
+}
+
+.preview-card details summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.preview-card__table {
+  margin-top: 12px;
+  overflow: auto;
+}
+
+.preview-card table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.preview-card th,
+.preview-card td {
+  padding: 8px 10px;
+  border: 1px solid #e5ebf1;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.log-card pre {
+  margin: 0;
+  min-height: 140px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 12px;
+  border-radius: 10px;
+  background: #f7f8fa;
+  color: #344256;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+button {
+  padding: 8px 12px;
+  border: 1px solid #cbd5df;
+  border-radius: 8px;
+  background: #fff;
+  color: #243446;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.btn-primary {
+  border-color: #1f4fbf;
+  background: #1f4fbf;
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #173f9a;
+  border-color: #173f9a;
+}
+
 .workspace-tabs { display:flex; gap:8px; overflow:auto; padding-bottom:2px; }
 .workspace-tab { display:flex; align-items:center; border:1px solid #d1d5db; border-radius:999px; background:#fff; }
-.workspace-tab.active { border-color:#3b82f6; background:#eff6ff; }
+.workspace-tab.active { border-color:#2563eb; background:#eff6ff; }
 .tab-main { border:none; background:transparent; padding:4px 10px; display:flex; align-items:center; gap:6px; }
+.tab-main:hover:not(:disabled),
+.tab-close:hover:not(:disabled) { background: transparent; border-color: transparent; }
 .tab-close { border:none; background:transparent; padding:4px 8px; color:#6b7280; }
 .tab-meta { font-size:11px; color:#6b7280; }
+
 @keyframes indet {
   0%{ transform: translateX(-100%); width: 30%; }
   50%{ transform: translateX(50%); width: 40%; }
   100%{ transform: translateX(200%); width: 30%; }
+}
+
+@media (max-width: 1024px) {
+  .workspace-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .workspace-card--hero,
+  .workspace-card--toolbar,
+  .upload-card,
+  .grid-card,
+  .log-card,
+  .preview-card {
+    padding: 14px;
+  }
+
+  .upload-card,
+  .workspace-hero,
+  .card-head {
+    flex-direction: column;
+  }
+
+  .toolbar-group--right {
+    margin-left: 0;
+  }
+
+  .upload-card__summary {
+    min-width: 0;
+    width: 100%;
+  }
 }
 </style>
 

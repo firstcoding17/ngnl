@@ -34,7 +34,7 @@ function onGridReady(params){
   gridApi.value = params.api;
   gridColumnApi.value = params.columnApi;
   params.api.setRowData(rowData.value);
-  params.api.sizeColumnsToFit();
+  if (colDefs.value.length) params.api.sizeColumnsToFit();
 }
 
 // Toolbar actions
@@ -133,40 +133,161 @@ defineExpose({ focusRow, filterEquals, clearFilters });
 </script>
 
 <template>
-  <div class="space-y-2">
-    <div class="flex flex-wrap gap-2 items-center">
-      <span class="text-sm text-gray-600">Grid Editor</span>
-      <button @click="addRow">+ Row</button>
-      <button @click="delSelectedRows">Delete selected rows</button>
-      <span class="mx-2 h-6 w-px bg-gray-300"></span>
-      <button @click="addColumn">+ Column</button>
-      <button @click="renameColumn">Rename column</button>
-      <button @click="delCurrentColumn">Delete current column</button>
-      <span class="mx-2 h-6 w-px bg-gray-300"></span>
-      <button @click="cmdTrim">=trim(col)</button>
-      <button @click="cmdLower">=lower(col)</button>
-      <button @click="cmdSplit">=split(col, sep, idx)</button>
-      <span class="text-xs text-gray-500 ml-auto">Copy/Paste: Ctrl+C / Ctrl+V</span>
+  <div class="grid-editor">
+    <div class="grid-editor__toolbar">
+      <div class="grid-editor__group">
+        <span class="grid-editor__label">Grid Editor</span>
+        <button type="button" @click="addRow">+ Row</button>
+        <button type="button" :disabled="!rowData.length" @click="delSelectedRows">Delete selected rows</button>
+      </div>
+      <div class="grid-editor__group">
+        <button type="button" @click="addColumn">+ Column</button>
+        <button type="button" :disabled="!columns.length" @click="renameColumn">Rename column</button>
+        <button type="button" :disabled="!columns.length" @click="delCurrentColumn">Delete current column</button>
+      </div>
+      <div class="grid-editor__group">
+        <button type="button" :disabled="!columns.length" @click="cmdTrim">Trim</button>
+        <button type="button" :disabled="!columns.length" @click="cmdLower">Lower</button>
+        <button type="button" :disabled="!columns.length" @click="cmdSplit">Split</button>
+      </div>
+      <div class="grid-editor__hint">셀 편집, 다중 선택, 복사/붙여넣기를 바로 사용할 수 있습니다.</div>
     </div>
 
-    <div class="ag-theme-alpine" style="height: 520px; width: 100%;">
-      <AgGridVue
-        :defaultColDef="defaultColDef"
-        :columnDefs="colDefs"
-        :rowData="rowData"
-        rowSelection="multiple"
-        :enableRangeSelection="true"
-        :suppressRowClickSelection="true"
-        :ensureDomOrder="true"
-        :enableCellTextSelection="true"
-        @grid-ready="onGridReady"
-        @cell-value-changed="(e)=>{ rowData[e.rowIndex][e.colDef.field]=e.newValue; emit('update', rowData) }"
-      />
+    <div class="grid-editor__frame">
+      <div v-if="!columns.length && !rowData.length" class="grid-editor__empty">
+        <h4>빈 데이터 그리드</h4>
+        <p>파일을 올리거나 새 데이터셋을 만들면 표가 바로 여기에 표시됩니다.</p>
+        <button type="button" @click="addColumn">첫 컬럼 만들기</button>
+      </div>
+
+      <div class="ag-theme-alpine grid-editor__table">
+        <AgGridVue
+          :defaultColDef="defaultColDef"
+          :columnDefs="colDefs"
+          :rowData="rowData"
+          rowSelection="multiple"
+          :enableRangeSelection="true"
+          :suppressRowClickSelection="true"
+          :ensureDomOrder="true"
+          :enableCellTextSelection="true"
+          @grid-ready="onGridReady"
+          @cell-value-changed="(e)=>{ rowData[e.rowIndex][e.colDef.field]=e.newValue; emit('update', rowData) }"
+        />
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-button { padding:6px 10px; border:1px solid #ddd; border-radius:8px; cursor:pointer; }
+.grid-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.grid-editor__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid #d6dee6;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.grid-editor__group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.grid-editor__label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #4a5565;
+  margin-right: 4px;
+}
+
+.grid-editor__hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.grid-editor__frame {
+  position: relative;
+  min-height: 520px;
+  border: 1px solid #d6dee6;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.grid-editor__table {
+  height: 520px;
+  width: 100%;
+}
+
+.grid-editor__empty {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background:
+    linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(255, 255, 255, 0.98)),
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 30px,
+      rgba(148, 163, 184, 0.08) 30px,
+      rgba(148, 163, 184, 0.08) 31px
+    );
+  text-align: center;
+  padding: 20px;
+}
+
+.grid-editor__empty h4 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.grid-editor__empty p {
+  margin: 0;
+  max-width: 420px;
+  color: #5f6b7a;
+  line-height: 1.5;
+}
+
+button {
+  padding: 7px 12px;
+  border: 1px solid #cbd5df;
+  border-radius: 8px;
+  background: #fff;
+  color: #243446;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+@media (max-width: 900px) {
+  .grid-editor__hint {
+    width: 100%;
+    margin-left: 0;
+  }
+}
 </style>
 
