@@ -1,5 +1,7 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed, nextTick } from 'vue';
+import Papa from 'papaparse';
+import * as XLSX from 'xlsx';
 import ProfilePanel from './ProfilePanel.vue';
 import RecentDatasets from './RecentDatasets.vue';
 import { saveDataset } from '@/stores/useDatasets';
@@ -20,6 +22,7 @@ import MlPanel from './MlPanel.vue';
 import McpPanel from './McpPanel.vue';
 
 const worker = new Worker(new URL('../workers/ingest.worker.js', import.meta.url), { type:'module' });
+const USE_WORKER_INGEST = false;
 
 const dragOver = ref(false);
 const fileInput = ref(null);
@@ -129,6 +132,154 @@ async function focusWorkspacePanel(payload = {}) {
 
 
 function append(s){ log.value += s + '\n'; }
+function setParsingState(mode, pct = null) {
+  status.value = 'parsing';
+  progress.value = { mode: mode || 'parse', pct };
+}
+
+function resetParsingState() {
+  status.value = 'idle';
+  progress.value = { mode: '', pct: null };
+}
+
+function detectFileMode(file) {
+  const name = String(file?.name || '');
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  if (ext === 'xlsx' || /sheet/.test(String(file?.type || ''))) return 'xlsx';
+  if (ext === 'json' || /application\/json/.test(String(file?.type || ''))) return 'json';
+  return 'csv';
+}
+
+function finalizeParsedRows(rows, preferredColumns = []) {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const firstRow = safeRows[0] && typeof safeRows[0] === 'object' ? safeRows[0] : {};
+  const columns = Array.isArray(preferredColumns) && preferredColumns.length
+    ? preferredColumns
+    : Object.keys(firstRow || {});
+  return {
+    rows: safeRows,
+    columns,
+    count: safeRows.length,
+  };
+}
+
+function normalizeJSONRows(obj) {
+  if (Array.isArray(obj)) return obj;
+  if (Array.isArray(obj?.data)) return obj.data;
+  throw new Error('JSON must be an array of objects');
+}
+
+function htmlTableToRows(html) {
+  const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+  const table = doc.querySelector('table');
+  if (!table) return [];
+  const headers = Array.from(table.querySelectorAll('tr:first-child th, tr:first-child td'))
+    .map((cell) => String(cell.textContent || '').trim());
+  const rows = [];
+  const bodyRows = Array.from(table.querySelectorAll('tr')).slice(1);
+  for (const tr of bodyRows) {
+    const cells = Array.from(tr.querySelectorAll('td, th')).map((cell) => String(cell.textContent || ''));
+    const row = {};
+    for (let i = 0; i < headers.length; i += 1) {
+      row[headers[i] || `col${i + 1}`] = cells[i] ?? '';
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+function looksLikeJSON(text) {
+  const value = String(text || '').trim();
+  return (value.startsWith('[') && value.endsWith(']')) || (value.startsWith('{') && value.endsWith('}'));
+}
+
+function applyParsedDataset({ name, rows: nextRows, columns: nextColumns, source = 'load', markDirty = true, datasetId = undefined }) {
+  append(`Parsing success: ${nextRows.length} rows / ${nextColumns.length} cols`);
+  stageDataset({
+    name,
+    rows: nextRows,
+    columns: nextColumns,
+    source,
+    markDirty,
+    datasetId,
+  });
+}
+
+function reportParsingFailure(error) {
+  const message = String(error?.message || error || 'unknown error');
+  append(`Parsing failed: ${message}`);
+  resetParsingState();
+}
+
+async function parseCSVFileOnMainThread(file) {
+  const total = Number(file?.size || 0);
+  return new Promise((resolve, reject) => {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      worker: false,
+      chunkSize: 256 * 1024,
+      chunk: (res) => {
+        const processed = Number(res?.meta?.cursor || 0);
+        const pct = total ? Math.min(100, Math.round((processed / total) * 100)) : null;
+        setParsingState('csv', pct);
+      },
+      complete: (res) => resolve(finalizeParsedRows(res?.data, res?.meta?.fields || [])),
+      error: (err) => reject(new Error(err?.message || 'CSV parse failed')),
+    });
+  });
+}
+
+async function parseXLSXFileOnMainThread(file) {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: 'array' });
+  const sheetName = workbook.SheetNames[0];
+  const rows = sheetName ? XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' }) : [];
+  return finalizeParsedRows(rows);
+}
+
+async function parseJSONFileOnMainThread(file) {
+  const text = await file.text();
+  return finalizeParsedRows(normalizeJSONRows(JSON.parse(text)));
+}
+
+async function parseFileOnMainThread(file) {
+  const mode = detectFileMode(file);
+  append(`Parsing started: ${mode}`);
+  setParsingState(mode, null);
+  if (mode === 'xlsx') return parseXLSXFileOnMainThread(file);
+  if (mode === 'json') return parseJSONFileOnMainThread(file);
+  return parseCSVFileOnMainThread(file);
+}
+
+async function parsePasteOnMainThread(payload) {
+  const html = String(payload?.html || '');
+  const text = String(payload?.text || '');
+  append('Parsing started: paste');
+  setParsingState('paste', null);
+
+  if (html && html.includes('<table')) {
+    return finalizeParsedRows(htmlTableToRows(html));
+  }
+  if (looksLikeJSON(text)) {
+    return finalizeParsedRows(normalizeJSONRows(JSON.parse(text)));
+  }
+
+  const delimiter = text.includes('\t') ? '\t' : ',';
+  const parsed = Papa.parse(text, {
+    header: true,
+    delimiter,
+    skipEmptyLines: true,
+    worker: false,
+  });
+
+  if (parsed?.errors?.length) {
+    const first = parsed.errors[0];
+    throw new Error(first?.message || 'Paste parse failed');
+  }
+
+  return finalizeParsedRows(parsed?.data, parsed?.meta?.fields || []);
+}
 
 function clearActiveDatasetState() {
   rows.value = [];
@@ -219,6 +370,60 @@ function stageDataset({
   toastRef.value?.show('Dataset loaded.');
 }
 
+let lastFile;
+let lastPastePayload = null;
+
+async function startFileIngest(file) {
+  lastFile = file;
+  append(`File selected: ${file?.name || 'untitled'}`);
+
+  if (USE_WORKER_INGEST) {
+    const mode = detectFileMode(file);
+    append(`Parsing started: ${mode}`);
+    setParsingState(mode, null);
+    worker.postMessage({ type:'FILE', payload:{ file } });
+    return;
+  }
+
+  try {
+    const parsed = await parseFileOnMainThread(file);
+    applyParsedDataset({
+      name: file?.name || 'untitled',
+      rows: parsed.rows,
+      columns: parsed.columns,
+      source: 'file',
+      markDirty: true,
+    });
+  } catch (error) {
+    reportParsingFailure(error);
+  }
+}
+
+async function startPasteIngest(payload) {
+  lastPastePayload = payload;
+  append('Paste detected');
+
+  if (USE_WORKER_INGEST) {
+    append('Parsing started: paste');
+    setParsingState('paste', null);
+    worker.postMessage({ type:'PASTE', payload });
+    return;
+  }
+
+  try {
+    const parsed = await parsePasteOnMainThread(payload);
+    applyParsedDataset({
+      name: 'pasted-data',
+      rows: parsed.rows,
+      columns: parsed.columns,
+      source: 'paste',
+      markDirty: true,
+    });
+  } catch (error) {
+    reportParsingFailure(error);
+  }
+}
+
 function onBeforeUnload(e) {
   if (!workspaceTabs.value.some((tab) => tab.dirty)) return;
   e.preventDefault();
@@ -226,25 +431,99 @@ function onBeforeUnload(e) {
 }
 
 onMounted(()=>{
-  worker.onmessage = (e) => {
+  worker.onmessage = async (e) => {
     const { type, ok, data, error } = e.data;
     if (type === 'PROGRESS' && ok) {
-      status.value = 'parsing';
-      progress.value = data; // { mode, pct }
+      setParsingState(data?.mode || 'parse', data?.pct ?? null);
       return;
     }
-    if (!ok) { append('Error: ' + error); status.value = 'idle'; return; }
+    if (!ok) {
+      append(`Parsing failed: ${error}`);
+      if (type === 'FILE' && lastFile) {
+        append('Retrying on main thread parser...');
+        try {
+          const parsed = await parseFileOnMainThread(lastFile);
+          applyParsedDataset({
+            name: lastFile?.name || 'untitled',
+            rows: parsed.rows,
+            columns: parsed.columns,
+            source: 'file',
+            markDirty: true,
+          });
+          return;
+        } catch (fallbackError) {
+          reportParsingFailure(fallbackError);
+          return;
+        }
+      }
+      if (type === 'PASTE' && lastPastePayload) {
+        append('Retrying paste on main thread parser...');
+        try {
+          const parsed = await parsePasteOnMainThread(lastPastePayload);
+          applyParsedDataset({
+            name: 'pasted-data',
+            rows: parsed.rows,
+            columns: parsed.columns,
+            source: 'paste',
+            markDirty: true,
+          });
+          return;
+        } catch (fallbackError) {
+          reportParsingFailure(fallbackError);
+          return;
+        }
+      }
+      resetParsingState();
+      return;
+    }
     if (type === 'FILE' || type === 'PASTE') {
       const stagedName = type === 'FILE' ? (lastFile?.name || 'untitled') : 'pasted-data';
-      stageDataset({
+      applyParsedDataset({
         name: stagedName,
         rows: data.rows,
         columns: data.columns,
         source: type === 'FILE' ? 'file' : 'paste',
         markDirty: true,
       });
-      
     }
+  };
+  worker.onerror = async () => {
+    append('Parsing failed: worker crashed');
+    if (lastFile) {
+      append('Retrying on main thread parser...');
+      try {
+        const parsed = await parseFileOnMainThread(lastFile);
+        applyParsedDataset({
+          name: lastFile?.name || 'untitled',
+          rows: parsed.rows,
+          columns: parsed.columns,
+          source: 'file',
+          markDirty: true,
+        });
+        return;
+      } catch (fallbackError) {
+        reportParsingFailure(fallbackError);
+        return;
+      }
+    }
+    if (lastPastePayload) {
+      append('Retrying paste on main thread parser...');
+      try {
+        const parsed = await parsePasteOnMainThread(lastPastePayload);
+        applyParsedDataset({
+          name: 'pasted-data',
+          rows: parsed.rows,
+          columns: parsed.columns,
+          source: 'paste',
+          markDirty: true,
+        });
+        return;
+      } catch (fallbackError) {
+        reportParsingFailure(fallbackError);
+        return;
+      }
+    }
+    resetParsingState();
   };
   window.addEventListener('paste', onPaste);
   window.addEventListener('beforeunload', onBeforeUnload);
@@ -255,19 +534,18 @@ onBeforeUnmount(()=>{
   window.removeEventListener('beforeunload', onBeforeUnload);
 });
 
-function onFilePick(e){
+async function onFilePick(e){
   const f = e.target?.files?.[0];
   if (!f) return;
-  lastFile = f;
-  worker.postMessage({ type:'FILE', payload:{ file: f }});
+  await startFileIngest(f);
   maybeTempUpload(f);
+  if (e?.target) e.target.value = '';
 }
-function onDrop(e){
+async function onDrop(e){
   e.preventDefault(); dragOver.value = false;
   const f = e.dataTransfer?.files?.[0];
   if (!f) return;
-  lastFile = f;
-  worker.postMessage({ type:'FILE', payload:{ file: f }});
+  await startFileIngest(f);
   maybeTempUpload(f);
 }
 
@@ -284,14 +562,12 @@ async function maybeTempUpload(latestFile){
     tempBusy.value = false;
   }
 }
-let lastFile;
 
-
-function onPaste(e){
+async function onPaste(e){
   const html = e.clipboardData?.getData('text/html') || '';
   const text = e.clipboardData?.getData('text/plain') || '';
   if (!html && !text) return;
-  worker.postMessage({ type:'PASTE', payload:{ text, html }});
+  await startPasteIngest({ text, html });
 }
 
 function onApplyRecipe(d){
