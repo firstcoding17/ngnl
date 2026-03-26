@@ -35,7 +35,6 @@ const tempKey = ref(undefined);
 const corrHeatRows = ref(null);
 const corrHeatCols = ref(null);
 const corrHeatPreset = ref(null);
-const pendingDataset = ref(null);
 const hasWorkspaceData = computed(() => rows.value.length > 0 || columns.value.length > 0);
 const hasFullDataset = computed(() => rows.value.length > 0 && columns.value.length > 0);
 const badge = computed(() => {
@@ -207,7 +206,6 @@ function stageDataset({
   markDirty = true,
   datasetId = undefined,
 }) {
-  pendingDataset.value = null;
   openDatasetInWorkspace({
     name,
     rows: nextRows,
@@ -219,27 +217,6 @@ function stageDataset({
   progress.value = { mode: '', pct: null };
   append(`Dataset loaded (${source}): ${nextRows.length} rows, ${nextColumns.length} cols.`);
   toastRef.value?.show('Dataset loaded.');
-}
-
-function applyPendingDataset() {
-  const pending = pendingDataset.value;
-  if (!pending) return;
-  openDatasetInWorkspace({
-    name: pending.name,
-    rows: pending.rows,
-    columns: pending.columns,
-    dirty: pending.dirty,
-    datasetId: pending.datasetId,
-  });
-  pendingDataset.value = null;
-  append(`Dataset applied: ${rows.value.length} rows, ${columns.value.length} cols.`);
-  toastRef.value?.show('Dataset applied.');
-}
-
-function cancelPendingDataset() {
-  if (!pendingDataset.value) return;
-  pendingDataset.value = null;
-  append('Dataset apply canceled.');
 }
 
 function onBeforeUnload(e) {

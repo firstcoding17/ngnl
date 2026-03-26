@@ -50,7 +50,7 @@ function parseCSVFile(file){
   Papa.parse(file, {
     header: true,
     skipEmptyLines: true,
-    worker: true,
+    worker: false,
     chunkSize: 256 * 1024,
     chunk: (res) => {
       // PapaParse provides processed byte cursor via meta.cursor.
