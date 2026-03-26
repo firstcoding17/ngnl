@@ -5,6 +5,8 @@ import LegacyHubView from '@/views/LegacyHubView.vue';
 import FileView from '@/views/FileView.vue';
 import GraphView from '@/views/GraphView.vue';
 import StatView from '@/views/StatView.vue';
+import { clearStoredAuth, hasApiKey } from '@/api/authState';
+import { ensureAuthenticatedSession, stopHeartbeat } from '@/api/authClient';
 
 const routes = [
   { path: '/key', component: KeyGate },
@@ -29,8 +31,20 @@ const router = createRouter({
   routes,
 });
 
+router.beforeEach(async (to) => {
+  if (to.path === '/key') return true;
+  if (!hasApiKey()) return '/key';
+  try {
+    await ensureAuthenticatedSession();
+    return true;
+  } catch (_) {
+    return '/key';
+  }
+});
+
 window.addEventListener('beta-key-invalid', () => {
-  localStorage.removeItem('beta_api_key');
+  stopHeartbeat();
+  clearStoredAuth();
   router.push('/key');
 });
 

@@ -8,13 +8,24 @@
         <li><router-link to="/legacy/stat">Stat</router-link></li>
       </ul>
     </nav>
+    <button class="logout-btn" @click="onLogout">Logout</button>
   </header>
 </template>
 
-<script>
-export default {
-  name: "AppHeader",
-};
+<script setup>
+import { useRouter } from 'vue-router';
+import { logout } from '@/api/authClient';
+
+const router = useRouter();
+
+async function onLogout() {
+  try {
+    await logout();
+  } catch (_) {
+    // ignore and continue clearing local session state
+  }
+  router.push('/key');
+}
 </script>
 
 <style scoped>
@@ -51,5 +62,15 @@ html {
 .nav a {
   text-decoration: none;
   color: white;
+}
+.logout-btn {
+  margin-left: auto;
+  margin-right: 48px;
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 999px;
+  background: transparent;
+  color: white;
+  cursor: pointer;
 }
 </style>

@@ -1,55 +1,32 @@
-function jsonHeaders() {
-  const headers = { 'Content-Type': 'application/json' };
-  const key = localStorage.getItem('beta_api_key') || '';
-  if (key) headers['X-API-Key'] = key;
-  return headers;
-}
-
-async function parseResponse(res, fallbackMsg) {
-  let data = {};
-  try {
-    data = await res.json();
-  } catch {
-    data = {};
-  }
-  if (!res.ok) {
-    const code = data?.code ? ` [${data.code}]` : '';
-    throw new Error(`${data?.message || fallbackMsg}${code}`);
-  }
-  if (data?.ok === false) {
-    const code = data.code ? ` [${data.code}]` : '';
-    throw new Error(`${data.message || fallbackMsg}${code}`);
-  }
-  return data;
-}
+import { authFetch, jsonHeaders, parseJsonResponse } from '@/api/fetchClient';
 
 export async function getMcpInfo() {
-  const res = await fetch('/mcp/info', {
+  const res = await authFetch('/mcp/info', {
     method: 'GET',
     headers: jsonHeaders(),
   });
-  return parseResponse(res, 'mcp info failed');
+  return parseJsonResponse(res, 'mcp info failed');
 }
 
 export async function getMcpTools() {
-  const res = await fetch('/mcp/tools', {
+  const res = await authFetch('/mcp/tools', {
     method: 'GET',
     headers: jsonHeaders(),
   });
-  return parseResponse(res, 'mcp tools failed');
+  return parseJsonResponse(res, 'mcp tools failed');
 }
 
 export async function callMcpTool(tool, input, datasetContext) {
-  const res = await fetch('/mcp/call', {
+  const res = await authFetch('/mcp/call', {
     method: 'POST',
     headers: jsonHeaders(),
     body: JSON.stringify({ tool, input: input || {}, datasetContext: datasetContext || {} }),
   });
-  return parseResponse(res, 'mcp call failed');
+  return parseJsonResponse(res, 'mcp call failed');
 }
 
 export async function chatWithMcp(message, datasetContext, history) {
-  const res = await fetch('/mcp/chat', {
+  const res = await authFetch('/mcp/chat', {
     method: 'POST',
     headers: jsonHeaders(),
     body: JSON.stringify({
@@ -58,5 +35,5 @@ export async function chatWithMcp(message, datasetContext, history) {
       history: Array.isArray(history) ? history : [],
     }),
   });
-  return parseResponse(res, 'mcp chat failed');
+  return parseJsonResponse(res, 'mcp chat failed');
 }

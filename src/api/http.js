@@ -1,27 +1,34 @@
 import axios from 'axios';
+import {
+  apiBase,
+  applySessionTokenFromHeaders,
+  buildAuthHeaders,
+  emitAuthInvalid,
+} from './authState';
 
 const http = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE || 'http://localhost:5000',
+  baseURL: apiBase() || '',
 });
 
-function getApiKey() {
-  return localStorage.getItem('beta_api_key') || '';
-}
-
-http.interceptors.request.use(cfg => {
-  const key = getApiKey();
-  if (key) cfg.headers['X-API-Key'] = key;
-  return cfg;
+http.interceptors.request.use((config) => {
+  config.headers = buildAuthHeaders(config.headers || {});
+  return config;
 });
 
 http.interceptors.response.use(
-  r => r,
-  err => {
-    if (err?.response?.status === 401) {
-      // Invalid or missing key: route user to key gate
-      window.dispatchEvent(new Event('beta-key-invalid'));
+  (response) => {
+    applySessionTokenFromHeaders(response.headers);
+    return response;
+  },
+  (error) => {
+    const status = error?.response?.status;
+    if (status === 401 || status === 409) {
+      emitAuthInvalid({
+        status,
+        message: error?.response?.data?.error || error?.response?.data?.message || '',
+      });
     }
-    return Promise.reject(err);
+    return Promise.reject(error);
   }
 );
 

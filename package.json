@@ -5,7 +5,15 @@
   "scripts": {
     "serve": "vue-cli-service serve",
     "build": "vue-cli-service build",
-    "lint": "vue-cli-service lint"
+    "lint": "vue-cli-service lint",
+    "test:stat-view": "node scripts/test_stat_view_regression.js",
+    "test:ml-panel": "node scripts/test_ml_panel_regression.js",
+    "test:data-save-load": "node scripts/test_data_save_load_regression.js",
+    "test:mcp-panel": "node scripts/test_mcp_panel_regression.js",
+    "test:mcp-suggestions": "node scripts/test_mcp_suggestion_actions.js",
+    "test:mcp-session": "node scripts/test_mcp_session_export.js",
+    "test:stat-presets": "node scripts/test_stat_panel_presets.js",
+    "test:chart-board": "node scripts/test_chart_board_inline.js"
   },
   "dependencies": {
     "ag-grid-community": "^34.3.0",

@@ -632,6 +632,7 @@ import {
   statQualityProcess,
 } from "@/api/statClient";
 import { getStatCapabilities } from "@/services/statApi";
+import { getMlCapabilities } from "@/services/mlApi";
 
 const LEGACY_DATA_KEY = "legacy_table_data";
 const LEGACY_GRAPH_PREF_KEY = "legacy_graph_pref";
@@ -1049,17 +1050,7 @@ export default {
       }
 
       try {
-        const key = localStorage.getItem("beta_api_key") || "";
-        const res = await fetch("/ml/capabilities", {
-          method: "GET",
-          headers: {
-            ...(key ? { "X-API-Key": key } : {}),
-          },
-        });
-        const payload = await res.json();
-        if (!res.ok || payload?.ok === false) {
-          throw new Error(payload?.message || "Failed to load ML capabilities.");
-        }
+        const payload = await getMlCapabilities();
         this.mlCaps = payload?.data || null;
       } catch (e) {
         this.mlCaps = null;

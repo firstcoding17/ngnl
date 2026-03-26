@@ -1,42 +1,18 @@
-function jsonHeaders() {
-  const headers = { 'Content-Type': 'application/json' };
-  const key = localStorage.getItem('beta_api_key') || '';
-  if (key) headers['X-API-Key'] = key;
-  return headers;
-}
-
-async function parseResponse(res, fallbackMsg) {
-  let data = null;
-  try {
-    data = await res.json();
-  } catch (_) {
-    data = null;
-  }
-  if (!res.ok) {
-    const code = data?.code ? ` [${data.code}]` : '';
-    const msg = data?.message || fallbackMsg;
-    throw new Error(`${msg}${code}`);
-  }
-  if (data?.ok === false) {
-    const code = data.code ? ` [${data.code}]` : '';
-    throw new Error(`${data.message || fallbackMsg}${code}`);
-  }
-  return data;
-}
+import { authFetch, jsonHeaders, parseJsonResponse } from '@/api/fetchClient';
 
 export async function getMlCapabilities() {
-  const res = await fetch('/ml/capabilities', {
+  const res = await authFetch('/ml/capabilities', {
     method: 'GET',
     headers: jsonHeaders(),
   });
-  return parseResponse(res, 'ml capability check failed');
+  return parseJsonResponse(res, 'ml capability check failed');
 }
 
 export async function runMlTrain(payload) {
-  const res = await fetch('/ml/run', {
+  const res = await authFetch('/ml/run', {
     method: 'POST',
     headers: jsonHeaders(),
     body: JSON.stringify({ ...(payload || {}), op: 'train' }),
   });
-  return parseResponse(res, 'ml run failed');
+  return parseJsonResponse(res, 'ml run failed');
 }

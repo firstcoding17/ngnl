@@ -1,22 +1,14 @@
-function jsonHeaders() {
-  const headers = { 'Content-Type': 'application/json' };
-  const key = localStorage.getItem('beta_api_key') || '';
-  if (key) headers['X-API-Key'] = key;
-  return headers;
-}
+import { authFetch, jsonHeaders, parseJsonResponse } from '@/api/fetchClient';
 
 export async function prepareChart(spec, rows, endpoint = '/viz/prepare') {
   const max = 5000;
   const S = rows.length > max ? rows.slice(0, max) : rows;
-  const res = await fetch(endpoint, {
+  const res = await authFetch(endpoint, {
     method: 'POST',
     headers: jsonHeaders(),
     body: JSON.stringify({ rows: S, spec })
   });
-  if (!res.ok) throw new Error('viz/prepare failed');
-  const payload = await res.json();
-  if (payload?.ok === false) throw new Error(payload?.message || 'viz/prepare failed');
-  return payload;
+  return parseJsonResponse(res, 'viz/prepare failed');
 }
 
 export async function aggregateChart(spec, rows, endpoint = '/viz/aggregate') {
@@ -29,13 +21,10 @@ export async function aggregateChart(spec, rows, endpoint = '/viz/aggregate') {
   const max = 200000;
   const S = trimmed.length > max ? trimmed.slice(0, max) : trimmed;
 
-  const res = await fetch(endpoint, {
+  const res = await authFetch(endpoint, {
     method: 'POST',
     headers: jsonHeaders(),
     body: JSON.stringify({ rows: S, spec })
   });
-  if (!res.ok) throw new Error('viz/aggregate failed');
-  const payload = await res.json();
-  if (payload?.ok === false) throw new Error(payload?.message || 'viz/aggregate failed');
-  return payload;
+  return parseJsonResponse(res, 'viz/aggregate failed');
 }
