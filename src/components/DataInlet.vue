@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount, computed, nextTick } from 'vue';
+import { ref, onMounted, onBeforeUnmount, computed, nextTick, watch } from 'vue';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 import ProfilePanel from './ProfilePanel.vue';
@@ -23,6 +23,7 @@ import McpPanel from './McpPanel.vue';
 
 const worker = new Worker(new URL('../workers/ingest.worker.js', import.meta.url), { type:'module' });
 const USE_WORKER_INGEST = false;
+const WORKSPACE_DRAFT_KEY = 'ngnl_workspace_draft_v1';
 
 const dragOver = ref(false);
 const fileInput = ref(null);
@@ -155,6 +156,56 @@ function makeId() {
     return globalThis.crypto.randomUUID();
   }
   return `id_${Date.now()}_${Math.random().toString(16).slice(2)}_${Math.random().toString(16).slice(2)}`;
+}
+
+function persistWorkspaceDraft() {
+  try {
+    const payload = {
+      workspaceTabs: workspaceTabs.value,
+      activeTabId: activeTabId.value,
+      currentName: currentName.value,
+      dirty: dirty.value,
+      activeDatasetId: activeDatasetId.value,
+    };
+    sessionStorage.setItem(WORKSPACE_DRAFT_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.warn('Failed to persist workspace draft:', error);
+  }
+}
+
+function restoreWorkspaceDraft() {
+  try {
+    const raw = sessionStorage.getItem(WORKSPACE_DRAFT_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    const tabs = Array.isArray(parsed?.workspaceTabs) ? parsed.workspaceTabs : [];
+    if (!tabs.length) return false;
+
+    workspaceTabs.value = tabs.map((tab) => ({
+      tabId: tab.tabId || makeId(),
+      datasetId: tab.datasetId,
+      name: tab.name || 'untitled',
+      rows: Array.isArray(tab.rows) ? tab.rows : [],
+      columns: Array.isArray(tab.columns) ? tab.columns : [],
+      dirty: !!tab.dirty,
+      meta: tab.meta || { count: Array.isArray(tab.rows) ? tab.rows.length : 0, memMB: 0 },
+    }));
+
+    const targetId = parsed?.activeTabId && workspaceTabs.value.some((tab) => tab.tabId === parsed.activeTabId)
+      ? parsed.activeTabId
+      : workspaceTabs.value[0].tabId;
+
+    activateWorkspaceTab(targetId);
+    append(`Workspace restored: ${workspaceTabs.value.length} tab(s).`);
+    return true;
+  } catch (error) {
+    console.warn('Failed to restore workspace draft:', error);
+    return false;
+  }
+}
+
+function clearWorkspaceDraft() {
+  sessionStorage.removeItem(WORKSPACE_DRAFT_KEY);
 }
 
 function finalizeParsedRows(rows, preferredColumns = []) {
@@ -295,6 +346,7 @@ function clearActiveDatasetState() {
   meta.value = { count: 0, memMB: 0 };
   dirty.value = false;
   activeDatasetId.value = undefined;
+  clearWorkspaceDraft();
 }
 
 function activateWorkspaceTab(tabId) {
@@ -438,6 +490,7 @@ function onBeforeUnload(e) {
 }
 
 onMounted(()=>{
+  restoreWorkspaceDraft();
   worker.onmessage = async (e) => {
     const { type, ok, data, error } = e.data;
     if (type === 'PROGRESS' && ok) {
@@ -540,6 +593,18 @@ onBeforeUnmount(()=>{
   window.removeEventListener('paste', onPaste);
   window.removeEventListener('beforeunload', onBeforeUnload);
 });
+
+watch(
+  [workspaceTabs, activeTabId, currentName, dirty, activeDatasetId],
+  () => {
+    if (!workspaceTabs.value.length) {
+      clearWorkspaceDraft();
+      return;
+    }
+    persistWorkspaceDraft();
+  },
+  { deep: true }
+);
 
 async function onFilePick(e){
   const f = e.target?.files?.[0];
@@ -652,6 +717,7 @@ function closeAllTabs() {
   workspaceTabs.value = [];
   activeTabId.value = '';
   clearActiveDatasetState();
+  clearWorkspaceDraft();
   append('All workspace tabs closed.');
 }
 
