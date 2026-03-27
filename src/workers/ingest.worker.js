@@ -46,19 +46,17 @@ self.onmessage = async (e) => {
 };
 
 function parseCSVFile(file){
-  const total = file.size || 0;
   Papa.parse(file, {
     header: true,
     skipEmptyLines: true,
     worker: false,
-    chunkSize: 256 * 1024,
-    chunk: (res) => {
-      // PapaParse provides processed byte cursor via meta.cursor.
-      const processed = res?.meta?.cursor ?? 0;
-      const pct = total ? Math.min(100, Math.round((processed / total) * 100)) : null;
-      self.postMessage({ type:'PROGRESS', ok:true, data:{ mode:'csv', pct }});
+    beforeFirstChunk: (chunk) => chunk.replace(/^\uFEFF/, ''),
+    complete: (res) => {
+      const rows = Array.isArray(res.data)
+        ? res.data.filter((row) => row && Object.keys(row).length > 0)
+        : [];
+      postOK('FILE', rows);
     },
-    complete: (res) => postOK('FILE', res.data),
     error: (err) => postERR('FILE', err.message)
   });
 }

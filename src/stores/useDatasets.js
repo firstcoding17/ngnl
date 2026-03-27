@@ -1,5 +1,24 @@
 import { db } from './db';
 
+function makeId() {
+  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+  return `ds_${Date.now()}_${Math.random().toString(16).slice(2)}_${Math.random().toString(16).slice(2)}`;
+}
+
+function cloneColumns(columns) {
+  return Array.isArray(columns) ? columns.map((column) => String(column)) : [];
+}
+
+function cloneRows(rows) {
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => {
+    if (!row || typeof row !== 'object') return row;
+    return Object.fromEntries(Object.entries(row));
+  });
+}
+
 function inferColumnTypes(rows, columns, maxScan = 1000) {
   const sample = Array.isArray(rows) ? rows.slice(0, maxScan) : [];
   const types = {};
@@ -56,14 +75,16 @@ function buildDatasetMeta(columns, rows, extraMeta = {}) {
 export async function saveDataset(name, columns, rows, id, options = {}) {
   const now = Date.now();
   const existing = id ? await db.datasets.get(id) : null;
-  const datasetId = id ?? crypto.randomUUID();
+  const datasetId = id ?? makeId();
+  const safeColumns = cloneColumns(columns);
+  const safeRows = cloneRows(rows);
   const version = Number(existing?.version || 0) + 1;
-  const meta = buildDatasetMeta(columns || [], rows || [], options?.meta || {});
+  const meta = buildDatasetMeta(safeColumns, safeRows, options?.meta || {});
   const doc = {
     id: datasetId,
     name,
-    columns,
-    rows,
+    columns: safeColumns,
+    rows: safeRows,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
     version,
@@ -71,12 +92,12 @@ export async function saveDataset(name, columns, rows, id, options = {}) {
   };
   await db.datasets.put(doc);
   await db.dataset_versions.put({
-    id: crypto.randomUUID(),
+    id: makeId(),
     datasetId,
     version,
     name,
-    columns,
-    rows,
+    columns: safeColumns,
+    rows: safeRows,
     meta,
     createdAt: now,
   });

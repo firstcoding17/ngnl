@@ -1,17 +1,18 @@
 <template>
-  <div class="key-gate">
+  <div class="key-gate" data-testid="key-gate">
     <div class="key-card">
       <p class="key-label">NGNL Access</p>
-      <h2>접속 키를 입력하세요</h2>
-      <p class="key-help">서버에서 발급한 API 키가 있어야 계속 진행할 수 있습니다.</p>
+      <h2>Access key required</h2>
+      <p class="key-help">Enter the server-issued API key to continue into the workspace.</p>
       <input
         v-model="key"
         class="key-input"
+        data-testid="api-key-input"
         placeholder="e.g. key_aaa111"
         @keyup.enter="enter"
       />
-      <button class="key-button" @click="enter">입장하기</button>
-      <p v-if="error" class="key-error">{{ error }}</p>
+      <button class="key-button" data-testid="api-key-submit" @click="enter">Enter workspace</button>
+      <p v-if="error" class="key-error" data-testid="api-key-error">{{ error }}</p>
     </div>
   </div>
 </template>

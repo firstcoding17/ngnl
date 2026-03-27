@@ -33,6 +33,18 @@ function append(s) {
   log.value += `${s}\n`;
 }
 
+function cloneRowsForWorker(rows = []) {
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => {
+    if (!row || typeof row !== 'object') return row;
+    return { ...row };
+  });
+}
+
+function cloneRecipePayload(source) {
+  return JSON.parse(JSON.stringify(source || {}));
+}
+
 onMounted(() => {
   worker.onmessage = (e) => {
     const { ok, type, data, error } = e.data;
@@ -52,11 +64,17 @@ onMounted(() => {
 onBeforeUnmount(() => worker.terminate());
 
 function runApply() {
-  worker.postMessage({ type: 'APPLY', payload: { rows: props.rows, recipe: recipe.value } });
+  worker.postMessage({
+    type: 'APPLY',
+    payload: {
+      rows: cloneRowsForWorker(props.rows),
+      recipe: cloneRecipePayload(recipe.value),
+    },
+  });
 }
 
 function exportCsv() {
-  worker.postMessage({ type: 'EXPORT_CSV', payload: { rows: props.rows } });
+  worker.postMessage({ type: 'EXPORT_CSV', payload: { rows: cloneRowsForWorker(props.rows) } });
 }
 
 function pushHistory(rows) {
@@ -66,14 +84,14 @@ function pushHistory(rows) {
 function undo() {
   if (!history.value.length) return;
   const prev = history.value.pop();
-  future.value.push(structuredClone(props.rows));
+  future.value.push(cloneRowsForWorker(props.rows));
   emit('apply', { rows: prev, columns: Object.keys(prev[0] || {}) });
 }
 
 function redo() {
   if (!future.value.length) return;
   const next = future.value.pop();
-  history.value.push(structuredClone(props.rows));
+  history.value.push(cloneRowsForWorker(props.rows));
   emit('apply', { rows: next, columns: Object.keys(next[0] || {}) });
 }
 

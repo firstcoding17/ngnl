@@ -71,10 +71,12 @@ function openMany() {
   })));
 }
 onMounted(refresh);
+
+defineExpose({ refresh });
 </script>
 
 <template>
-  <div class="recent-card">
+  <div class="recent-card" data-testid="recent-datasets">
     <div class="recent-card__head">
       <h3>Recent Datasets</h3>
       <div class="recent-card__actions">

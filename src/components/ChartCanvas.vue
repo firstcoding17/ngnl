@@ -83,9 +83,11 @@ function plotFromFigJson(figJson) {
     const layout = parsed?.layout || {};
     const conf = { displaylogo: false, modeBarButtonsToRemove: ['lasso2d', 'select2d'] };
 
-    Plotly.newPlot(el.value, data, layout, conf).then((p) => {
+    Promise.resolve(Plotly.newPlot(el.value, data, layout, conf)).then((p) => {
       plot = p;
       bindClickHandlers();
+    }).catch((error) => {
+      console.error(error);
     });
   } catch (e) {
     console.error(e);
@@ -95,20 +97,21 @@ function plotFromFigJson(figJson) {
 function plotFromSpec() {
   if (!el.value || !props.spec) return;
 
-  const { type, x, y, hue, size, options } = props.spec;
-  const rows = props.rows || [];
-  const pal = choosePalette(options?.palette);
+  try {
+    const { type, x, y, hue, size, options } = props.spec;
+    const rows = props.rows || [];
+    const pal = choosePalette(options?.palette);
 
-  const val = (r, c) => (c ? r[c] : undefined);
+    const val = (r, c) => (c ? r[c] : undefined);
 
-  let data = [];
-  const layout = {
-    title: options?.title || '',
-    xaxis: { title: options?.xLabel || x || '' },
-    yaxis: { title: options?.yLabel || y || '' },
-    margin: { t: 40, r: 20, b: 50, l: 50 },
-    hovermode: 'closest',
-  };
+    let data = [];
+    const layout = {
+      title: options?.title || '',
+      xaxis: { title: options?.xLabel || x || '' },
+      yaxis: { title: options?.yLabel || y || '' },
+      margin: { t: 40, r: 20, b: 50, l: 50 },
+      hovermode: 'closest',
+    };
 
   function groupBy(key) {
     if (!key) return { '': rows };
@@ -358,11 +361,16 @@ function plotFromSpec() {
     data = [{ type: 'sankey', orientation: 'h', node: { label: all }, link: links }];
   }
 
-  const conf = { displaylogo: false, modeBarButtonsToRemove: ['lasso2d', 'select2d'] };
-  Plotly.newPlot(el.value, data, layout, conf).then((p) => {
-    plot = p;
-    bindClickHandlers();
-  });
+    const conf = { displaylogo: false, modeBarButtonsToRemove: ['lasso2d', 'select2d'] };
+    Promise.resolve(Plotly.newPlot(el.value, data, layout, conf)).then((p) => {
+      plot = p;
+      bindClickHandlers();
+    }).catch((error) => {
+      console.error(error);
+    });
+  } catch (error) {
+    console.error(error);
+  }
 }
 
 function build() {

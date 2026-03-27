@@ -49,6 +49,7 @@ const badge = computed(() => {
 });
 const toastRef = ref(null);
 const gridRef = ref(null);
+const recentDatasetsRef = ref(null);
 const graphPanelRef = ref(null);
 const chartBoardRef = ref(null);
 const statsPanelRef = ref(null);
@@ -270,19 +271,18 @@ function reportParsingFailure(error) {
 }
 
 async function parseCSVFileOnMainThread(file) {
-  const total = Number(file?.size || 0);
   return new Promise((resolve, reject) => {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
       worker: false,
-      chunkSize: 256 * 1024,
-      chunk: (res) => {
-        const processed = Number(res?.meta?.cursor || 0);
-        const pct = total ? Math.min(100, Math.round((processed / total) * 100)) : null;
-        setParsingState('csv', pct);
+      beforeFirstChunk: (chunk) => chunk.replace(/^\uFEFF/, ''),
+      complete: (res) => {
+        const parsedRows = Array.isArray(res?.data)
+          ? res.data.filter((row) => row && Object.keys(row).length > 0)
+          : [];
+        resolve(finalizeParsedRows(parsedRows, res?.meta?.fields || []));
       },
-      complete: (res) => resolve(finalizeParsedRows(res?.data, res?.meta?.fields || [])),
       error: (err) => reject(new Error(err?.message || 'CSV parse failed')),
     });
   });
@@ -483,10 +483,9 @@ async function startPasteIngest(payload) {
   }
 }
 
-function onBeforeUnload(e) {
-  if (!workspaceTabs.value.some((tab) => tab.dirty)) return;
-  e.preventDefault();
-  e.returnValue = '';
+function onBeforeUnload() {
+  if (!workspaceTabs.value.length) return;
+  persistWorkspaceDraft();
 }
 
 onMounted(()=>{
@@ -673,17 +672,36 @@ function openNewDataset(){
   append(`New dataset schema created: ${cols.join(', ')}`);
 }
 
+function resolveDatasetSaveName(defaultName, { promptIfMissing = true } = {}) {
+  if (typeof window !== 'undefined') {
+    const injected = String(window.__NGNL_E2E_SAVE_NAME || '').trim();
+    if (injected) return injected;
+  }
+  if (!promptIfMissing) return String(defaultName || '').trim();
+  const prompted = prompt('Enter dataset name', defaultName);
+  return String(prompted || '').trim();
+}
+
 async function saveCurrent(){
   if (!rows.value.length && !columns.value.length) return;
-  const name = prompt('Enter dataset name', currentName.value || `dataset-${new Date().toISOString().slice(0,19).replace('T', ' ')}`);
+  const defaultName = currentName.value || `dataset-${new Date().toISOString().slice(0,19).replace('T', ' ')}`;
+  append(`Save requested: ${defaultName}`);
+  const shouldPromptForName = !currentName.value || currentName.value === 'untitled';
+  const name = resolveDatasetSaveName(defaultName, { promptIfMissing: shouldPromptForName });
   if (!name) return;
-  const savedId = await saveDataset(name, columns.value, rows.value, activeDatasetId.value);
-  activeDatasetId.value = savedId;
-  currentName.value = name;
-  dirty.value = false;
-  syncActiveTabFromState();
-  append('Saved to IndexedDB.');
-  toastRef.value?.show('Saved.');
+  try {
+    const savedId = await saveDataset(name, columns.value, rows.value, activeDatasetId.value);
+    activeDatasetId.value = savedId;
+    currentName.value = name;
+    dirty.value = false;
+    syncActiveTabFromState();
+    await recentDatasetsRef.value?.refresh?.();
+    append('Saved to IndexedDB.');
+    toastRef.value?.show('Saved.');
+  } catch (error) {
+    append(`Save failed: ${error?.message || error}`);
+    toastRef.value?.show('Save failed.');
+  }
 }
 
 async function saveAllTabs() {
@@ -707,6 +725,7 @@ async function saveAllTabs() {
   }
   const active = workspaceTabs.value.find((it) => it.tabId === activeTabId.value);
   if (active) activateWorkspaceTab(active.tabId);
+  await recentDatasetsRef.value?.refresh?.();
   append(`Save all done: ${saved} saved, ${failed} failed.`);
   toastRef.value?.show(`Saved ${saved} tab(s).`);
 }
@@ -903,7 +922,7 @@ function onProfileSummary(summary){
 </script>
 
 <template>
-  <div class="workspace-shell">
+  <div class="workspace-shell" data-testid="workspace-shell">
     <section class="workspace-card workspace-card--hero">
       <div class="workspace-hero">
         <div>
@@ -930,8 +949,8 @@ function onProfileSummary(summary){
     <section class="workspace-card workspace-card--toolbar">
       <div class="toolbar-row">
         <div class="toolbar-group">
-          <button type="button" class="btn-primary" @click="openNewDataset">+ New dataset</button>
-          <button type="button" :disabled="!hasWorkspaceData" @click="saveCurrent">Save current dataset</button>
+          <button type="button" class="btn-primary" data-testid="new-dataset-button" @click="openNewDataset">+ New dataset</button>
+          <button type="button" :disabled="!hasWorkspaceData" data-testid="save-current-dataset" @click="saveCurrent">Save current dataset</button>
           <button type="button" :disabled="!workspaceTabs.length" @click="saveAllTabs">Save all tabs</button>
           <button type="button" :disabled="!workspaceTabs.length" @click="closeAllTabs">Close all tabs</button>
         </div>
@@ -961,13 +980,14 @@ function onProfileSummary(summary){
         <h3>Load File</h3>
         <p>파일을 드래그하거나 직접 선택하세요. CSV/JSON 텍스트는 <b>Ctrl+V</b>로 붙여넣어도 됩니다.</p>
         <div class="upload-card__actions">
-          <button type="button" class="btn-primary" @click="fileInput?.click()">Choose file</button>
+          <button type="button" class="btn-primary" data-testid="choose-file-button" @click="fileInput?.click()">Choose file</button>
           <span>Supported: CSV, XLSX, JSON</span>
         </div>
         <input
           ref="fileInput"
           type="file"
           class="file-input"
+          data-testid="workspace-file-input"
           @change="onFilePick"
           accept=".csv,.xlsx,.json,text/csv,application/json"
         />
@@ -1032,8 +1052,8 @@ function onProfileSummary(summary){
               <p v-else>아직 데이터가 없습니다. 파일 업로드, 붙여넣기, 새 데이터셋 생성 중 하나를 선택하세요.</p>
             </div>
             <div class="card-head__stats">
-              <span>Rows {{ rows.length }}</span>
-              <span>Cols {{ columns.length }}</span>
+              <span data-testid="workspace-row-count">Rows {{ rows.length }}</span>
+              <span data-testid="workspace-col-count">Cols {{ columns.length }}</span>
             </div>
           </div>
 
@@ -1069,21 +1089,21 @@ function onProfileSummary(summary){
               <span>{{ logEntryCount }} entries</span>
             </div>
           </div>
-          <pre>{{ log || 'No actions yet.' }}</pre>
+          <pre data-testid="workspace-log">{{ log || 'No actions yet.' }}</pre>
         </section>
       </div>
 
       <aside class="workspace-layout__side">
-        <RecentDatasets @open="onOpenRecent" @open-many="onOpenRecentMany" />
+        <RecentDatasets ref="recentDatasetsRef" @open="onOpenRecent" @open-many="onOpenRecentMany" />
         <ProfilePanel v-if="rows.length" :rows="rows" @summary="onProfileSummary" />
       </aside>
     </div>
 
-    <section v-if="rows.length" class="workspace-card preview-card">
+    <section v-if="rows.length" class="workspace-card preview-card" data-testid="workspace-preview">
       <details open>
         <summary>Preview (top 20 rows)</summary>
         <div class="preview-card__table">
-          <table>
+          <table data-testid="preview-table">
             <thead>
               <tr>
                 <th v-for="c in columns" :key="c">{{ c }}</th>

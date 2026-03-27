@@ -21,7 +21,18 @@ const result = ref(null);
 const loading = ref(false);
 worker.onmessage = (e) => { result.value = e.data; loading.value=false; };
 
-function run(kind, payload){ loading.value=true; worker.postMessage({ kind, payload:{ rows:props.rows, ...payload } }); }
+function cloneRowsForWorker(rows = []) {
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => {
+    if (!row || typeof row !== 'object') return row;
+    return { ...row };
+  });
+}
+
+function run(kind, payload){
+  loading.value=true;
+  worker.postMessage({ kind, payload:{ rows: cloneRowsForWorker(props.rows), ...payload } });
+}
 
 const t = ref({ mode:'independent', colA:'', colB:'', oneCol:'', mu:0, alternative:'two-sided' });
 const norm = ref({ column:'' });

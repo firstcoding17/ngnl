@@ -11,6 +11,14 @@ const state = ref(null);
 const loading = ref(false);
 const error = ref('');
 
+function cloneRowsForWorker(rows = []) {
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => {
+    if (!row || typeof row !== 'object') return row;
+    return { ...row };
+  });
+}
+
 function emitSummary() {
   emit('summary', {
     loading: loading.value,
@@ -34,7 +42,7 @@ function run(){
   loading.value = true;
   error.value = '';
   emitSummary();
-  worker.postMessage({ rows: props.rows, sampleSize: 1000, numericHint: [] });
+  worker.postMessage({ rows: cloneRowsForWorker(props.rows), sampleSize: 1000, numericHint: [] });
 }
 onMounted(()=> {
   worker.onmessage = (e) => {

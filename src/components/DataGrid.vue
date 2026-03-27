@@ -192,7 +192,7 @@ defineExpose({ focusRow, filterEquals, clearFilters });
 </script>
 
 <template>
-  <div class="grid-editor">
+  <div class="grid-editor" data-testid="workspace-grid">
     <div class="grid-editor__toolbar">
       <div class="grid-editor__group">
         <span class="grid-editor__label">Grid Editor</span>
@@ -219,7 +219,7 @@ defineExpose({ focusRow, filterEquals, clearFilters });
         <button type="button" @click="addColumn">첫 컬럼 만들기</button>
       </div>
 
-      <div class="ag-theme-alpine grid-editor__table">
+      <div class="ag-theme-alpine grid-editor__table" data-testid="workspace-grid-table">
         <AgGridVue
           theme="legacy"
           :defaultColDef="defaultColDef"
