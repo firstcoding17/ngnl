@@ -45,17 +45,24 @@ self.onmessage = async (e) => {
   }
 };
 
-function parseCSVFile(file){
-  Papa.parse(file, {
+async function parseCSVFile(file){
+  const rawText = await file.text();
+  const sanitizedText = String(rawText || '').replace(/^\uFEFF/, '');
+  Papa.parse(sanitizedText, {
     header: true,
-    skipEmptyLines: true,
+    skipEmptyLines: 'greedy',
     worker: false,
-    beforeFirstChunk: (chunk) => chunk.replace(/^\uFEFF/, ''),
     complete: (res) => {
-      const rows = Array.isArray(res.data)
-        ? res.data.filter((row) => row && Object.keys(row).length > 0)
+      const rows = Array.isArray(res?.data)
+        ? res.data.filter((row) => {
+            if (!row || typeof row !== 'object') return false;
+            return Object.values(row).some((value) => String(value ?? '').trim() !== '');
+          })
         : [];
-      postOK('FILE', rows);
+      const fields = Array.isArray(res?.meta?.fields)
+        ? res.meta.fields.filter((field) => String(field || '').trim() !== '')
+        : [];
+      postOK('FILE', rows, fields);
     },
     error: (err) => postERR('FILE', err.message)
   });
@@ -103,8 +110,10 @@ function looksLikeJSON(s){
   const t = (s || '').trim();
   return (t.startsWith('[') && t.endsWith(']')) || (t.startsWith('{') && t.endsWith('}'));
 }
-function postOK(type, rows){
-  const columns = Object.keys(rows[0] || {});
+function postOK(type, rows, preferredColumns){
+  const columns = Array.isArray(preferredColumns) && preferredColumns.length
+    ? preferredColumns
+    : Object.keys(rows[0] || {});
   const count = rows.length;
   self.postMessage({ type, ok:true, data: { rows, columns, count } });
 }

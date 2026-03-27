@@ -271,17 +271,29 @@ function reportParsingFailure(error) {
 }
 
 async function parseCSVFileOnMainThread(file) {
+  const rawText = await file.text();
+  const sanitizedText = String(rawText || '').replace(/^\uFEFF/, '');
+  append(`CSV raw length: ${sanitizedText.length}`);
+
   return new Promise((resolve, reject) => {
-    Papa.parse(file, {
+    Papa.parse(sanitizedText, {
       header: true,
-      skipEmptyLines: true,
+      skipEmptyLines: 'greedy',
       worker: false,
-      beforeFirstChunk: (chunk) => chunk.replace(/^\uFEFF/, ''),
-      complete: (res) => {
-        const parsedRows = Array.isArray(res?.data)
-          ? res.data.filter((row) => row && Object.keys(row).length > 0)
+      complete: (parsed) => {
+        const rawRows = Array.isArray(parsed?.data) ? parsed.data : [];
+        const filteredRows = rawRows.filter((row) => {
+          if (!row || typeof row !== 'object') return false;
+          return Object.values(row).some((value) => String(value ?? '').trim() !== '');
+        });
+        const fields = Array.isArray(parsed?.meta?.fields)
+          ? parsed.meta.fields.filter((field) => String(field || '').trim() !== '')
           : [];
-        resolve(finalizeParsedRows(parsedRows, res?.meta?.fields || []));
+
+        append(`CSV parsed rows (raw): ${rawRows.length}`);
+        append(`CSV parsed fields: ${fields.join(', ') || '(none)'}`);
+
+        resolve(finalizeParsedRows(filteredRows, fields));
       },
       error: (err) => reject(new Error(err?.message || 'CSV parse failed')),
     });
