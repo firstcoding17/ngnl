@@ -4,8 +4,12 @@
   "private": true,
   "scripts": {
     "serve": "vue-cli-service serve",
+    "serve:e2e": "vue-cli-service serve --host 127.0.0.1 --port 4173",
     "build": "vue-cli-service build",
     "lint": "vue-cli-service lint",
+    "test:e2e": "npx playwright test",
+    "test:e2e:headed": "npx playwright test --headed",
+    "test:e2e:install": "npx playwright install chromium",
     "test:stat-view": "node scripts/test_stat_view_regression.js",
     "test:ml-panel": "node scripts/test_ml_panel_regression.js",
     "test:data-save-load": "node scripts/test_data_save_load_regression.js",
@@ -29,6 +33,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.54.2",
     "@babel/core": "^7.26.7",
     "@babel/eslint-parser": "^7.26.5",
     "@babel/plugin-transform-class-properties": "^7.25.9",
