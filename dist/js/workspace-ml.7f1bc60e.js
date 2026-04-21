@@ -1,2 +1,0 @@
-"use strict";(self["webpackChunkswwseos"]=self["webpackChunkswwseos"]||[]).push([[210,416],{8387:function(n,t,e){e.d(t,{b:function(){return i},u:function(){return a}});var s=e(6603);async function a(){const n=await(0,s.tm)("/ml/capabilities",{method:"GET",headers:(0,s.pF)()});return(0,s.lC)(n,"ml capability check failed")}async function i(n){const t=await(0,s.tm)("/ml/run",{method:"POST",headers:(0,s.pF)(),body:JSON.stringify({...n||{},op:"train"})});return(0,s.lC)(t,"ml run failed")}}}]);
-//# sourceMappingURL=workspace-ml.7f1bc60e.js.map
