@@ -1,8 +1,9 @@
 import { db } from './db';
+import { makeId } from '@/utils/id';
 
 export async function saveChart(name, spec, id) {
   const doc = {
-    id: id ?? crypto.randomUUID(),
+    id: id ?? makeId('chart'),
     name,
     spec,
     createdAt: Date.now(),

@@ -1,11 +1,13 @@
 ﻿<script setup>
 import { ref, watch } from 'vue';
+import RuntimeStatusBlock from '@/components/RuntimeStatusBlock.vue';
 import { runStatCorr } from '@/services/statApi';
 
 const props = defineProps({
   rows: { type: Array, default: () => [] },
   columns: { type: Array, default: () => [] },
   preset: { type: Object, default: null },
+  artifact: { type: Object, default: null },
 });
 
 const loading = ref(false);
@@ -15,6 +17,17 @@ const presetNotice = ref('');
 const lastPresetKey = ref('');
 
 const emit = defineEmits(['openHeatmap', 'openChart']);
+
+watch(
+  () => props.artifact,
+  (artifact) => {
+    if (!artifact || artifact.kind !== 'stat-corr') return;
+    result.value = artifact.result || null;
+    err.value = '';
+    presetNotice.value = artifact.summary || 'Loaded saved correlation artifact.';
+  },
+  { deep: true, immediate: true }
+);
 
 watch(
   () => props.preset,
@@ -89,6 +102,7 @@ function openTopPairsChart() {
     <div v-if="presetNotice" class="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded p-2">
       {{ presetNotice }}
     </div>
+    <RuntimeStatusBlock v-if="artifact" :artifact="artifact" compact />
 
     <div v-if="result?.warnings?.length" class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
       <div v-for="w in result.warnings" :key="w">- {{ w }}</div>

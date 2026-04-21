@@ -1,4 +1,5 @@
 import { db } from './db';
+import { makeId } from '@/utils/id';
 
 export type BoardItem = {
   chartId: string;
@@ -16,7 +17,7 @@ export type BoardDoc = { id: string; name: string; items: BoardItem[]; createdAt
 
 export async function saveBoard(name: string, items: BoardItem[], id?: string) {
   const doc: BoardDoc = {
-    id: id ?? crypto.randomUUID(),
+    id: id ?? makeId('board'),
     name,
     items,
     createdAt: Date.now(),

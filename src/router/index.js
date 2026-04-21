@@ -1,21 +1,18 @@
 import { createRouter, createWebHistory } from 'vue-router';
-import DataInletView from '@/views/DataInletView.vue';
-import KeyGate from '@/components/KeyGate.vue';
-import LegacyHubView from '@/views/LegacyHubView.vue';
-import FileView from '@/views/FileView.vue';
-import GraphView from '@/views/GraphView.vue';
-import StatView from '@/views/StatView.vue';
 import { clearStoredAuth, hasApiKey } from '@/api/authState';
 import { ensureAuthenticatedSession, stopHeartbeat } from '@/api/authClient';
 
 const routes = [
-  { path: '/key', component: KeyGate },
-  { path: '/', component: DataInletView },
+  { path: '/key', name: 'key', component: () => import(/* webpackChunkName: "route-key" */ '@/components/KeyGate.vue') },
+  { path: '/', name: 'studio-home', component: () => import(/* webpackChunkName: "route-home" */ '@/views/HomeView.vue') },
+  { path: '/workspace', name: 'workspace', component: () => import(/* webpackChunkName: "route-workspace" */ '@/views/DataInletView.vue') },
+  { path: '/dashboard/new', name: 'dashboard-new', component: () => import(/* webpackChunkName: "route-dashboard-create" */ '@/views/DashboardCreateView.vue') },
+  { path: '/dashboard/:dashboardId', name: 'dashboard', component: () => import(/* webpackChunkName: "route-dashboard" */ '@/views/DashboardView.vue') },
 
-  { path: '/legacy', component: LegacyHubView },
-  { path: '/legacy/file', component: FileView },
-  { path: '/legacy/graph', component: GraphView },
-  { path: '/legacy/stat', component: StatView },
+  { path: '/legacy', name: 'legacy-hub', component: () => import(/* webpackChunkName: "route-legacy-hub" */ '@/views/LegacyHubView.vue') },
+  { path: '/legacy/file', name: 'legacy-file', component: () => import(/* webpackChunkName: "route-legacy-file" */ '@/views/FileView.vue') },
+  { path: '/legacy/graph', name: 'legacy-graph', component: () => import(/* webpackChunkName: "route-legacy-graph" */ '@/views/GraphView.vue') },
+  { path: '/legacy/stat', name: 'legacy-stat', component: () => import(/* webpackChunkName: "route-legacy-stat" */ '@/views/StatView.vue') },
   { path: '/legacy/:pathMatch(.*)*', redirect: '/legacy' },
 
   // Backward compatibility

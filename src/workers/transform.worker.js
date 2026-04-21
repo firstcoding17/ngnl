@@ -28,7 +28,44 @@ function esc(v){
   const s = String(v);
   return /[,"\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
 }
+function normalizeText(v){ return String(v ?? '').trim().toLowerCase(); }
 function toNum(v){ const n = Number(String(v).replace(/[, ]/g,'')); return Number.isFinite(n)?n:NaN; }
+function safeKey(v){ return normalizeText(v).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24) || 'feature'; }
+function round(v, digits=6){ const p = 10 ** digits; return Math.round(v * p) / p; }
+function tokenizeText(v){
+  return normalizeText(v)
+    .replace(/[^a-z0-9\u00c0-\u024f\u3131-\u318e\uac00-\ud7a3\s]/g, ' ')
+    .split(/\s+/)
+    .filter(token => token && token.length >= 2);
+}
+function hashString(text){
+  let h = 2166136261;
+  const value = String(text || '');
+  for (let i = 0; i < value.length; i += 1) {
+    h ^= value.charCodeAt(i);
+    h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24);
+  }
+  return h >>> 0;
+}
+function imageExt(v){
+  const raw = String(v ?? '').trim().toLowerCase();
+  const match = raw.match(/\.([a-z0-9]+)(?:$|\?)/i);
+  return match ? match[1] : '';
+}
+function isRemotePath(v){
+  const raw = String(v ?? '').trim().toLowerCase();
+  return raw.startsWith('http://') || raw.startsWith('https://') ? 1 : 0;
+}
+const POSITIVE_WORDS = new Set(['good', 'great', 'excellent', 'love', 'helpful', 'clear', 'fast', 'happy', 'positive', 'recommend']);
+const NEGATIVE_WORDS = new Set(['bad', 'poor', 'slow', 'hate', 'bug', 'broken', 'confusing', 'sad', 'negative', 'delay']);
+const SEMANTIC_CONCEPTS = {
+  trust: ['clear', 'stable', 'safe', 'secure', 'reliable', 'trust', 'accurate', 'confident'],
+  support: ['support', 'help', 'helpful', 'service', 'team', 'reply', 'guide', 'assist'],
+  delivery: ['delivery', 'shipping', 'shipment', 'arrive', 'arrival', 'tracking', 'package', 'courier'],
+  finance: ['price', 'cost', 'billing', 'payment', 'invoice', 'refund', 'charge', 'revenue'],
+  risk: ['risk', 'broken', 'bug', 'issue', 'error', 'delay', 'overdue', 'problem'],
+  experience: ['fast', 'slow', 'easy', 'confusing', 'smooth', 'friction', 'checkout', 'setup'],
+};
 function mean(arr){ return arr.length ? arr.reduce((s,v)=>s+v,0)/arr.length : NaN; }
 function stdev(arr, sample=true){
   if (!arr.length) return NaN;
@@ -73,6 +110,11 @@ function applyRecipe(_rows, r){
     const v = row[c];
     if (v===''||v==null||Number.isNaN(v)) row[c]=val;
   }
+  // mapValues
+  if (r?.mapValues) for (const [c, mapping] of Object.entries(r.mapValues)) for (const row of rows) {
+    const key = normalizeText(row[c]);
+    if (Object.prototype.hasOwnProperty.call(mapping || {}, key)) row[c] = mapping[key];
+  }
   // dropna
   if (r?.dropna?.length) rows = rows.filter(row => r.dropna.every(c => {
     const v=row[c]; return !(v===''||v==null||Number.isNaN(v));
@@ -98,11 +140,120 @@ function applyRecipe(_rows, r){
       row[d.new] = safeEval(d.expr, ctx); return row;
     });
   }
+  // textStats
+  if (r?.textStats?.length) for (const c of r.textStats) for (const row of rows) {
+    const tokens = tokenizeText(row[c]);
+    row[`${c}_char_len`] = String(row[c] ?? '').trim().length;
+    row[`${c}_word_count`] = tokens.length;
+  }
+  // textTfidf
+  if (r?.textTfidf?.length) for (const spec of r.textTfidf) {
+    const column = spec?.column;
+    if (!column) continue;
+    const docs = rows.map(row => tokenizeText(row[column]));
+    const docFreq = new Map();
+    docs.forEach(tokens => {
+      Array.from(new Set(tokens)).forEach(token => {
+        docFreq.set(token, (docFreq.get(token) || 0) + 1);
+      });
+    });
+    const topTerms = Array.from(docFreq.entries())
+      .sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, Math.max(1, Number(spec?.topK || 4)))
+      .map(([token]) => token);
+    const totalDocs = Math.max(1, docs.length);
+    rows.forEach((row, index) => {
+      const tokens = docs[index];
+      const totalTokens = Math.max(1, tokens.length);
+      topTerms.forEach((term) => {
+        const tf = tokens.filter(token => token === term).length / totalTokens;
+        const idf = Math.log((totalDocs + 1) / ((docFreq.get(term) || 0) + 1)) + 1;
+        row[`${column}_tfidf_${safeKey(term)}`] = round(tf * idf, 6);
+      });
+    });
+  }
+  // textSentiment
+  if (r?.textSentiment?.length) for (const c of r.textSentiment) for (const row of rows) {
+    const tokens = tokenizeText(row[c]);
+    const pos = tokens.filter(token => POSITIVE_WORDS.has(token)).length;
+    const neg = tokens.filter(token => NEGATIVE_WORDS.has(token)).length;
+    row[`${c}_sentiment`] = round((pos - neg) / Math.max(1, tokens.length), 6);
+  }
+  // textEmbedding
+  if (r?.textEmbedding?.length) for (const spec of r.textEmbedding) {
+    const column = spec?.column;
+    const dims = Math.max(2, Number(spec?.dims || 4));
+    if (!column) continue;
+    for (const row of rows) {
+      const vector = new Array(dims).fill(0);
+      const tokens = tokenizeText(row[column]);
+      tokens.forEach((token) => {
+        const hash = hashString(token);
+        const index = hash % dims;
+        const sign = ((hash >> 1) & 1) === 0 ? 1 : -1;
+        vector[index] += sign;
+      });
+      const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0)) || 1;
+      vector.forEach((value, index) => {
+        row[`${column}_embed_${index}`] = round(value / norm, 6);
+      });
+    }
+  }
+  // textSemantic
+  if (r?.textSemantic?.length) for (const spec of r.textSemantic) {
+    const column = spec?.column;
+    if (!column) continue;
+    const concepts = Object.entries(SEMANTIC_CONCEPTS);
+    for (const row of rows) {
+      const tokens = tokenizeText(row[column]);
+      const total = Math.max(1, tokens.length);
+      const tokenSet = new Set(tokens);
+      for (const [concept, lexicon] of concepts) {
+        const hits = lexicon.reduce((count, token) => count + (tokenSet.has(token) ? 1 : 0), 0);
+        row[`${column}_semantic_${concept}`] = round(hits / total, 6);
+      }
+    }
+  }
   // onehot
   if (r?.onehot?.length) for (const c of r.onehot){
     const cats = Array.from(new Set(rows.map(rw => String(rw[c] ?? ''))));
     for (const row of rows) for (const k of cats) row[`${c}__${k}`] = String(row[c] ?? '')===k ? 1 : 0;
     for (const row of rows) delete row[c];
+  }
+  // dateParts
+  if (r?.dateParts?.length) for (const spec of r.dateParts) {
+    const column = spec?.column;
+    if (!column) continue;
+    const parts = Array.isArray(spec?.parts) && spec.parts.length ? spec.parts : ['year', 'month', 'day'];
+    for (const row of rows) {
+      const raw = row[column];
+      const date = raw ? new Date(raw) : null;
+      if (!date || Number.isNaN(date.getTime())) continue;
+      if (parts.includes('year')) row[`${column}_year`] = date.getFullYear();
+      if (parts.includes('month')) row[`${column}_month`] = date.getMonth() + 1;
+      if (parts.includes('day')) row[`${column}_day`] = date.getDate();
+      if (parts.includes('weekday')) row[`${column}_weekday`] = date.getDay();
+    }
+  }
+  // imageFeatures
+  if (r?.imageFeatures?.length) for (const c of r.imageFeatures) for (const row of rows) {
+    const raw = String(row[c] ?? '').trim();
+    row[`${c}_image_ext`] = imageExt(raw);
+    row[`${c}_image_is_remote`] = isRemotePath(raw);
+    row[`${c}_image_name_len`] = raw.length;
+  }
+  // imageEmbedding
+  if (r?.imageEmbedding?.length) for (const spec of r.imageEmbedding) {
+    const column = spec?.column;
+    const dims = Math.max(2, Number(spec?.dims || 4));
+    if (!column) continue;
+    for (const row of rows) {
+      const raw = String(row[column] ?? '');
+      for (let index = 0; index < dims; index += 1) {
+        const hash = hashString(`${raw}::${index}`);
+        row[`${column}_embed_${index}`] = round((hash % 1000) / 1000, 6);
+      }
+    }
   }
   // scale standardize
   if (r?.scale?.standardize?.length) for (const c of r.scale.standardize){

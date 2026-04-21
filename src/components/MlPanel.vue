@@ -1,14 +1,23 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import RuntimeStatusBlock from '@/components/RuntimeStatusBlock.vue';
 import { inferColumnTypes } from '@/utils/colTypes';
 import { getMlCapabilities, runMlTrain } from '@/services/mlApi';
+import {
+  getMlExecutionPlan,
+  getMlModelAvailability,
+  getMlTaskModelCatalog,
+} from '@/utils/mlArtifacts';
 
 const props = defineProps({
   rows: { type: Array, default: () => [] },
   columns: { type: Array, default: () => [] },
   profileSummary: { type: Object, default: () => ({}) },
   preset: { type: Object, default: null },
+  artifact: { type: Object, default: null },
 });
+
+const emit = defineEmits(['artifact-ready']);
 
 const task = ref('regression');
 const model = ref('linear');
@@ -74,6 +83,17 @@ const projectionColumns = computed(() => {
   const first = result.value?.projectionPreview?.[0];
   return first ? Object.keys(first) : [];
 });
+const isMlArtifact = (artifact) => ['ml-model', 'ml-unsupervised'].includes(String(artifact?.kind || ''));
+const blockedArtifact = computed(() =>
+  isMlArtifact(props.artifact) && props.artifact?.status === 'blocked' ? props.artifact : null
+);
+const panelArtifact = computed(() => (isMlArtifact(props.artifact) ? props.artifact : null));
+const showBlockedArtifact = computed(() => !!blockedArtifact.value && !result.value && !loading.value);
+const panelArtifactBadges = computed(() => ([
+  { label: 'requested', value: String(props.artifact?.requestedModel || props.artifact?.request?.model || '').trim() },
+  { label: 'effective', value: String(props.artifact?.effectiveModel || props.artifact?.result?.model || '').trim() },
+  { label: 'task', value: String(props.artifact?.normalizedRequest?.task || props.artifact?.request?.task || '').trim() },
+].filter((item) => item.value)));
 const targetClassCount = computed(() => {
   if (task.value !== 'classification' || !target.value) return 0;
   const uniq = new Set();
@@ -85,16 +105,40 @@ const targetClassCount = computed(() => {
   }
   return uniq.size;
 });
+const selectedModelAvailability = computed(() => {
+  if (capLoading.value) {
+    return {
+      status: 'checking',
+      requestedModel: model.value,
+      effectiveModel: model.value,
+      reason: 'Checking backend capabilities for the selected model...',
+      requirements: [],
+      notes: [],
+    };
+  }
+  return getMlModelAvailability(task.value, model.value, caps.value || {}, capError.value);
+});
+const selectedModelStatusLabel = computed(() => {
+  if (selectedModelAvailability.value.status === 'fallback') return 'fallback';
+  if (selectedModelAvailability.value.status === 'blocked') return 'blocked';
+  if (selectedModelAvailability.value.status === 'checking') return 'checking';
+  return 'direct';
+});
+const canTrainSelectedModel = computed(() => (
+  !capLoading.value
+  && selectedModelAvailability.value.status !== 'blocked'
+));
 const recommendationForTask = computed(() => {
   const rowCount = (props.rows || []).length;
   const numericCount = numericColumns.value.length;
   const warningCount = Array.isArray(props.profileSummary?.warnings) ? props.profileSummary.warnings.length : 0;
   const basePreset =
     rowCount >= 20000 ? 'fast' : rowCount < 500 && warningCount === 0 ? 'accurate' : 'balanced';
+  const fallbackReady = supportsLinearFallback(task.value);
 
   if (task.value === 'classification') {
     const classes = targetClassCount.value;
-    const modelChoice = rowCount >= 6000 ? 'hgb' : rowCount >= 300 ? 'forest' : 'tree';
+    const modelChoice = fallbackReady ? 'linear' : rowCount >= 6000 ? 'hgb' : rowCount >= 300 ? 'forest' : 'tree';
     const scoringChoice = classes > 2 ? 'f1_weighted' : 'accuracy';
     return {
       task: 'classification',
@@ -106,7 +150,7 @@ const recommendationForTask = computed(() => {
     };
   }
   if (task.value === 'regression') {
-    const modelChoice = rowCount >= 6000 ? 'hgb' : rowCount >= 300 ? 'forest' : 'linear';
+    const modelChoice = fallbackReady ? 'linear' : rowCount >= 6000 ? 'hgb' : rowCount >= 300 ? 'forest' : 'linear';
     return {
       task: 'regression',
       model: modelChoice,
@@ -158,71 +202,22 @@ const recommendationForTask = computed(() => {
 });
 
 const modelOptions = computed(() => {
-  if (task.value === 'classification') {
-    return [
-      { value: 'linear', label: 'Logistic (linear)' },
-      { value: 'tree', label: 'Decision tree' },
-      { value: 'forest', label: 'Random forest' },
-      { value: 'extra_trees', label: 'Extra Trees' },
-      { value: 'adaboost', label: 'AdaBoost' },
-      { value: 'svm', label: 'SVM (SVC)' },
-      { value: 'calibrated', label: 'Calibrated Forest' },
-      { value: 'voting', label: 'Voting Ensemble' },
-      { value: 'hgb', label: 'Hist Gradient Boosting' },
-      { value: 'xgboost', label: 'XGBoost (optional)' },
-      { value: 'lightgbm', label: 'LightGBM (optional)' },
-      { value: 'catboost', label: 'CatBoost (optional)' },
-      { value: 'tabnet', label: 'TabNet (optional)' },
-      { value: 'ft_transformer', label: 'FT-Transformer (optional)' },
-      { value: 'torch_mlp', label: 'PyTorch MLP (optional)' },
-      { value: 'tf_mlp', label: 'TensorFlow MLP (optional)' },
-      { value: 'nb', label: 'Naive Bayes (Gaussian)' },
-      { value: 'knn', label: 'K-Nearest Neighbors' },
-      { value: 'nn', label: 'Neural network (DL-lite)' },
-    ];
-  }
-  if (task.value === 'anomaly') {
-    return [
-      { value: 'isolation_forest', label: 'Isolation Forest' },
-      { value: 'autoencoder', label: 'Autoencoder (DL-lite)' },
-    ];
-  }
-  if (task.value === 'timeseries') {
-    return [
-      { value: 'naive', label: 'Naive forecast' },
-      { value: 'moving_avg', label: 'Moving average' },
-      { value: 'arima', label: 'ARIMA (optional)' },
-      { value: 'exp_smoothing', label: 'Exponential smoothing (optional)' },
-    ];
-  }
-  if (task.value === 'clustering') {
-    return [
-      { value: 'kmeans', label: 'K-Means' },
-      { value: 'dbscan', label: 'DBSCAN' },
-    ];
-  }
-  if (task.value === 'dim_reduction') {
-    return [{ value: 'pca', label: 'PCA' }];
-  }
-  return [
-    { value: 'linear', label: 'Linear regression' },
-    { value: 'tree', label: 'Decision tree' },
-    { value: 'forest', label: 'Random forest' },
-    { value: 'extra_trees', label: 'Extra Trees' },
-    { value: 'adaboost', label: 'AdaBoost' },
-    { value: 'svm', label: 'SVM (SVR)' },
-    { value: 'voting', label: 'Voting Ensemble' },
-    { value: 'elasticnet', label: 'ElasticNet' },
-    { value: 'hgb', label: 'Hist Gradient Boosting' },
-    { value: 'xgboost', label: 'XGBoost (optional)' },
-    { value: 'lightgbm', label: 'LightGBM (optional)' },
-    { value: 'catboost', label: 'CatBoost (optional)' },
-    { value: 'tabnet', label: 'TabNet (optional)' },
-    { value: 'ft_transformer', label: 'FT-Transformer (optional)' },
-    { value: 'torch_mlp', label: 'PyTorch MLP (optional)' },
-    { value: 'tf_mlp', label: 'TensorFlow MLP (optional)' },
-    { value: 'nn', label: 'Neural network (DL-lite)' },
-  ];
+  return getMlTaskModelCatalog(task.value).map((entry) => {
+    if (capLoading.value) {
+      return {
+        ...entry,
+        status: 'checking',
+        displayLabel: `${entry.label} [checking]`,
+      };
+    }
+    const availability = getMlModelAvailability(task.value, entry.value, caps.value || {}, capError.value);
+    const suffix = availability.status === 'runnable' ? 'direct' : availability.status;
+    return {
+      ...entry,
+      ...availability,
+      displayLabel: `${entry.label} [${suffix}]`,
+    };
+  });
 });
 const scoringOptions = computed(() => {
   if (task.value === 'classification') {
@@ -298,6 +293,58 @@ watch(
 );
 
 watch(
+  () => props.artifact,
+  (artifact) => {
+    if (!artifact || !isMlArtifact(artifact)) return;
+    error.value = '';
+    if (artifact.status === 'blocked') {
+      result.value = null;
+      presetNotice.value = artifact.summary || 'ML preset is blocked in the current environment.';
+      return;
+    }
+    result.value = artifact.result || null;
+    presetNotice.value = artifact.summary || 'Loaded saved ML artifact.';
+  },
+  { deep: true, immediate: true }
+);
+
+function supportsLinearFallback(taskName = task.value) {
+  const fallbackModels = caps.value?.fallbackModels?.[taskName];
+  return (
+    ['regression', 'classification'].includes(String(taskName || ''))
+    && caps.value?.sklearn === false
+    && !!caps.value?.pandas
+    && !!caps.value?.numpy
+    && Array.isArray(fallbackModels)
+    && fallbackModels.includes('linear')
+  );
+}
+
+function getPresetAutoRunGuard(nextPreset) {
+  const title = String(nextPreset?.title || 'ML preset loaded');
+  if (capLoading.value) {
+    return {
+      ok: false,
+      message: `${title}. Capabilities are still loading, so auto-run is paused.`,
+    };
+  }
+  if (capError.value) {
+    return {
+      ok: false,
+      message: `${title}. Capability check failed, so auto-run is paused.`,
+    };
+  }
+  const plan = getMlExecutionPlan(nextPreset?.request || { task: task.value, model: model.value }, caps.value || {}, capError.value);
+  if (!plan.runnable) {
+    return {
+      ok: false,
+      message: `${title}. ${plan.reason}`,
+    };
+  }
+  return { ok: true, message: '' };
+}
+
+watch(
   () => props.preset,
   async (nextPreset) => {
     if (!nextPreset || nextPreset.panel !== 'ml' || nextPreset.key === lastPresetKey.value) return;
@@ -305,11 +352,50 @@ watch(
     if (nextPreset.request && typeof nextPreset.request === 'object') {
       await applyArtifactRequest(nextPreset.request);
     }
-    presetNotice.value = nextPreset.title || 'Preset ready for ML panel. Review settings and click Train model.';
     error.value = '';
+    if (isMlArtifact(props.artifact)) {
+      presetNotice.value = props.artifact.summary || nextPreset.title || 'Loaded saved ML artifact.';
+      return;
+    }
     result.value = null;
+    presetNotice.value = nextPreset.title || 'Preset ready for ML panel. Review settings and click Train model.';
+    await nextTick();
+    if (!nextPreset.autoRun) return;
+    const autoRunGuard = getPresetAutoRunGuard(nextPreset);
+    if (!autoRunGuard.ok) {
+      presetNotice.value = autoRunGuard.message;
+      return;
+    }
+    if (!canRun.value) {
+      presetNotice.value =
+        nextPreset.title || 'ML preset loaded. Review target/features before running the model.';
+      return;
+    }
+    presetNotice.value = nextPreset.title || 'Running ML preset...';
+    await runTrain();
   },
   { deep: true }
+);
+
+watch(
+  () => [capLoading.value, capError.value, caps.value?.sklearn, props.preset?.key],
+  async () => {
+    const nextPreset = props.preset;
+    if (!nextPreset || nextPreset.panel !== 'ml' || !nextPreset.autoRun) return;
+    if (nextPreset.key !== lastPresetKey.value) return;
+    if (isMlArtifact(props.artifact)) return;
+    if (loading.value || result.value || error.value) return;
+
+    const autoRunGuard = getPresetAutoRunGuard(nextPreset);
+    if (!autoRunGuard.ok) {
+      presetNotice.value = autoRunGuard.message;
+      return;
+    }
+    if (!canRun.value) return;
+
+    presetNotice.value = nextPreset.title || 'Running ML preset...';
+    await runTrain();
+  }
 );
 
 onMounted(async () => {
@@ -329,23 +415,56 @@ async function runTrain() {
   error.value = '';
   result.value = null;
   loading.value = true;
+  let request = null;
+  let plan = null;
   try {
-    const payload = buildTrainPayload();
-    lastRunRequest.value = payload;
+    request = buildTrainRequest();
+    plan = getMlExecutionPlan(request, caps.value || {}, capError.value);
+    if (!plan.runnable) {
+      error.value = plan.reason;
+      emit('artifact-ready', {
+        request,
+        error: plan.reason,
+        capabilities: caps.value || null,
+        plan,
+      });
+      return;
+    }
+    const payload = {
+      ...plan.normalizedRequest,
+      rows: props.rows,
+    };
+    if (plan.availability === 'fallback') {
+      presetNotice.value = `Fallback runtime: requested ${plan.requestedModel || model.value}, executing ${plan.effectiveModel || payload.model}.`;
+    }
+    lastRunRequest.value = request;
     const res = await runMlTrain(payload);
     result.value = res?.data || null;
+    emit('artifact-ready', {
+      request,
+      result: result.value,
+      capabilities: caps.value || null,
+      plan,
+    });
   } catch (e) {
     error.value = String(e?.message || e);
+    if (request) {
+      emit('artifact-ready', {
+        request,
+        error: error.value,
+        capabilities: caps.value || null,
+        plan,
+      });
+    }
   } finally {
     loading.value = false;
   }
 }
 
-function buildTrainPayload() {
+function buildTrainRequest() {
   return {
     task: task.value,
     model: model.value,
-    rows: props.rows,
     args: {
       target: target.value,
       features: features.value,
@@ -400,7 +519,7 @@ function saveArtifact() {
   const payload = {
     version: 'ml-artifact-v1',
     createdAt: new Date().toISOString(),
-    request: lastRunRequest.value || buildTrainPayload(),
+    request: lastRunRequest.value || buildTrainRequest(),
     result: result.value,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
@@ -492,7 +611,7 @@ async function onArtifactFilePick(e) {
           accept="application/json,.json"
           @change="onArtifactFilePick"
         />
-        <button @click="runTrain" :disabled="loading || !canRun">
+        <button data-testid="ml-train-button" @click="runTrain" :disabled="loading || !canRun || !canTrainSelectedModel">
           {{ loading ? 'Training...' : 'Train model' }}
         </button>
       </div>
@@ -503,6 +622,7 @@ async function onArtifactFilePick(e) {
     <div v-else-if="caps" class="state success">
       sklearn: <b>{{ caps.sklearn ? 'ready' : 'missing' }}</b>,
       pandas: <b>{{ caps.pandas ? 'ready' : 'missing' }}</b>,
+      numpy: <b>{{ caps.numpy ? 'ready' : 'missing' }}</b>,
       shap: <b>{{ caps.shap ? 'ready' : 'missing' }}</b>,
       statsmodels: <b>{{ caps.statsmodels ? 'ready' : 'missing' }}</b>,
       pytorch-tabnet: <b>{{ caps.pytorch_tabnet ? 'ready' : 'missing' }}</b>,
@@ -513,11 +633,39 @@ async function onArtifactFilePick(e) {
       dl mode: <b>{{ caps.deepLearningMode || 'n/a' }}</b>
     </div>
     <div v-if="presetNotice" class="state success">{{ presetNotice }}</div>
+    <RuntimeStatusBlock
+      v-if="panelArtifact && !loading"
+      :artifact="panelArtifact"
+      :badges="panelArtifactBadges"
+      compact
+    />
+    <div
+      v-if="selectedModelAvailability"
+      :class="['state', 'model-status', `model-status--${selectedModelAvailability.status}`]"
+      data-testid="ml-model-availability"
+    >
+      <div class="model-status__head">
+        <strong>{{ selectedModelStatusLabel }}</strong>
+        <span v-if="selectedModelAvailability.requestedModel">
+          requested <b>{{ selectedModelAvailability.requestedModel }}</b>
+        </span>
+        <span v-if="selectedModelAvailability.effectiveModel && selectedModelAvailability.status === 'fallback'">
+          effective <b>{{ selectedModelAvailability.effectiveModel }}</b>
+        </span>
+      </div>
+      <div>{{ selectedModelAvailability.reason }}</div>
+      <ul v-if="selectedModelAvailability.notes?.length" class="state-list">
+        <li v-for="item in selectedModelAvailability.notes" :key="item">{{ item }}</li>
+      </ul>
+      <ul v-if="selectedModelAvailability.requirements?.length" class="state-list">
+        <li v-for="item in selectedModelAvailability.requirements.slice(0, 3)" :key="item">{{ item }}</li>
+      </ul>
+    </div>
 
     <div class="grid md:grid-cols-2 gap-3">
       <label>
         Task
-        <select v-model="task">
+        <select v-model="task" data-testid="ml-task-select">
           <option value="regression">Regression</option>
           <option value="classification">Classification</option>
           <option value="anomaly">Anomaly Detection</option>
@@ -529,8 +677,8 @@ async function onArtifactFilePick(e) {
 
       <label>
         Model
-        <select v-model="model">
-          <option v-for="m in modelOptions" :key="m.value" :value="m.value">{{ m.label }}</option>
+        <select v-model="model" data-testid="ml-model-select">
+          <option v-for="m in modelOptions" :key="m.value" :value="m.value">{{ m.displayLabel || m.label }}</option>
         </select>
       </label>
 
@@ -701,7 +849,7 @@ async function onArtifactFilePick(e) {
 
     <label v-if="task !== 'timeseries'">
       Features (multi-select)
-      <select v-model="features" multiple size="8">
+      <select v-model="features" multiple size="8" data-testid="ml-feature-select">
         <option v-for="c in featureColumns" :key="c" :value="c">{{ c }}</option>
       </select>
     </label>
@@ -986,6 +1134,48 @@ label {
   background: #eef2ff;
   border-color: #c7d2fe;
   color: #1e3a8a;
+}
+
+.state.blocked {
+  background: #fff7ed;
+  border-color: #fdba74;
+  color: #9a3412;
+}
+
+.model-status__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.model-status--checking {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #334155;
+}
+
+.model-status--runnable {
+  background: #ecfdf5;
+  border-color: #bbf7d0;
+  color: #166534;
+}
+
+.model-status--fallback {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
+}
+
+.model-status--blocked {
+  background: #fff7ed;
+  border-color: #fdba74;
+  color: #9a3412;
+}
+
+.state-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
 }
 
 .metric-grid {

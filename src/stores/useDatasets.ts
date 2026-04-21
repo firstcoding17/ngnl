@@ -19,6 +19,17 @@ function cloneRows(rows: any[]) {
   });
 }
 
+function cloneMeta<T = any>(value: T): T {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.map((item) => cloneMeta(item)) as T;
+  if (typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, cloneMeta(item)])
+    ) as T;
+  }
+  return value;
+}
+
 function inferColumnTypes(rows: any[], columns: string[], maxScan = 1000) {
   const sample = Array.isArray(rows) ? rows.slice(0, maxScan) : [];
   const types: Record<string, string> = {};
@@ -85,7 +96,7 @@ export async function saveDataset(
   const safeColumns = cloneColumns(columns);
   const safeRows = cloneRows(rows);
   const version = Number(existing?.version || 0) + 1;
-  const meta = buildDatasetMeta(safeColumns, safeRows, options?.meta || {});
+  const meta = buildDatasetMeta(safeColumns, safeRows, cloneMeta(options?.meta || {}));
   const doc: Dataset = {
     id: datasetId,
     name,

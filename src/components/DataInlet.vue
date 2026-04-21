@@ -1,29 +1,30 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount, computed, nextTick, watch } from 'vue';
+import { ref, onMounted, onBeforeUnmount, computed, nextTick, watch, defineAsyncComponent } from 'vue';
 import Papa from 'papaparse';
-import * as XLSX from 'xlsx';
 import ProfilePanel from './ProfilePanel.vue';
 import RecentDatasets from './RecentDatasets.vue';
 import { saveDataset } from '@/stores/useDatasets';
-import DataGrid from './DataGrid.vue'
 import { tempUpload, tempDelete } from '@/services/tempUpload';
 import { exportXLSX } from '@/services/exportXlsx';
 import DownloadMenu from './DownloadMenu.vue';
 import Toast from './Toast.vue';
-import RecipePanel from './RecipePanel.vue';
-import GraphPanel from './GraphPanel.vue';
-import ChartsBoard from './ChartsBoard.vue';
-import StatsReportPanel from './StatsReportPanel.vue';
-import StatTestsPanel from './StatTestsPanel.vue';
-import StatsOlsPanel from './StatsOlsPanel.vue';
-import StatsCorrPanel from './StatsCorrPanel.vue';
-import StatsAdvancedPanel from './StatsAdvancedPanel.vue';
-import MlPanel from './MlPanel.vue';
-import McpPanel from './McpPanel.vue';
+
+const DataGrid = defineAsyncComponent(() => import(/* webpackChunkName: "workspace-grid" */ './DataGrid.vue'));
+const RecipePanel = defineAsyncComponent(() => import(/* webpackChunkName: "workspace-recipes" */ './RecipePanel.vue'));
+const GraphPanel = defineAsyncComponent(() => import(/* webpackChunkName: "workspace-graph" */ './GraphPanel.vue'));
+const ChartsBoard = defineAsyncComponent(() => import(/* webpackChunkName: "workspace-board" */ './ChartsBoard.vue'));
+const StatsReportPanel = defineAsyncComponent(() => import(/* webpackChunkName: "workspace-stat-panels" */ './StatsReportPanel.vue'));
+const StatTestsPanel = defineAsyncComponent(() => import(/* webpackChunkName: "workspace-stat-panels" */ './StatTestsPanel.vue'));
+const StatsOlsPanel = defineAsyncComponent(() => import(/* webpackChunkName: "workspace-stat-panels" */ './StatsOlsPanel.vue'));
+const StatsCorrPanel = defineAsyncComponent(() => import(/* webpackChunkName: "workspace-stat-panels" */ './StatsCorrPanel.vue'));
+const StatsAdvancedPanel = defineAsyncComponent(() => import(/* webpackChunkName: "workspace-stat-panels" */ './StatsAdvancedPanel.vue'));
+const MlPanel = defineAsyncComponent(() => import(/* webpackChunkName: "workspace-ml" */ './MlPanel.vue'));
+const McpPanel = defineAsyncComponent(() => import(/* webpackChunkName: "workspace-mcp" */ './McpPanel.vue'));
 
 const worker = new Worker(new URL('../workers/ingest.worker.js', import.meta.url), { type:'module' });
 const USE_WORKER_INGEST = false;
 const WORKSPACE_DRAFT_KEY = 'ngnl_workspace_draft_v1';
+let xlsxModulePromise = null;
 
 const dragOver = ref(false);
 const fileInput = ref(null);
@@ -134,6 +135,14 @@ async function focusWorkspacePanel(payload = {}) {
 
 
 function append(s){ log.value += s + '\n'; }
+
+async function loadXLSX() {
+  if (!xlsxModulePromise) {
+    xlsxModulePromise = import('xlsx');
+  }
+  return xlsxModulePromise;
+}
+
 function setParsingState(mode, pct = null) {
   status.value = 'parsing';
   progress.value = { mode: mode || 'parse', pct };
@@ -301,6 +310,7 @@ async function parseCSVFileOnMainThread(file) {
 }
 
 async function parseXLSXFileOnMainThread(file) {
+  const XLSX = await loadXLSX();
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
   const sheetName = workbook.SheetNames[0];
@@ -804,8 +814,8 @@ async function endSession(){
   }
 }
 
-function downloadXlsx(){
-  exportXLSX('dataset', columns.value, rows.value, {
+async function downloadXlsx(){
+  await exportXLSX('dataset', columns.value, rows.value, {
     sample: 3000,     
     minWch: 8,        
     maxWch: 50,       

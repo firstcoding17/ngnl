@@ -1,5 +1,7 @@
 <script setup>
-import DataInlet from '@/components/DataInlet.vue';
+import { defineAsyncComponent } from 'vue';
+
+const DataInlet = defineAsyncComponent(() => import('@/components/DataInlet.vue'));
 </script>
 
 <template>
@@ -7,11 +9,16 @@ import DataInlet from '@/components/DataInlet.vue';
     <div class="view-head">
       <div>
         <p class="view-kicker">Workspace</p>
-        <h1>Data Workspace</h1>
-        <p class="view-subtitle">기존 파일 화면처럼 바로 데이터를 올리고, 표에서 확인한 뒤 그래프와 통계 흐름으로 이어질 수 있게 구성했습니다.</p>
+        <h1>Classic Data Workspace</h1>
+        <p class="view-subtitle">
+          기존 업로드/그리드/그래프/통계 흐름을 바로 쓰고 싶을 때 여는 작업 공간입니다.
+          새 메인 플로우와 별도로 기존 기능은 그대로 유지됩니다.
+        </p>
       </div>
       <div class="view-nav">
-        <router-link to="/">Workspace</router-link>
+        <router-link to="/">Main</router-link>
+        <router-link to="/dashboard/new">Create</router-link>
+        <router-link to="/workspace">Workspace</router-link>
         <router-link to="/legacy/file">File</router-link>
         <router-link to="/legacy/graph">Graph</router-link>
         <router-link to="/legacy/stat">Stat</router-link>

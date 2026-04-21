@@ -1,22 +1,17 @@
-<template>
-  <header class="Appheader">
-    <nav class="nav">
-      <ul>
-        <li><router-link to="/">New</router-link></li>
-        <li><router-link to="/legacy/file">File</router-link></li>
-        <li><router-link to="/legacy/graph">Graph</router-link></li>
-        <li><router-link to="/legacy/stat">Stat</router-link></li>
-      </ul>
-    </nav>
-    <button class="logout-btn" @click="onLogout">Logout</button>
-  </header>
-</template>
-
 <script setup>
-import { useRouter } from 'vue-router';
+import { computed } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { logout } from '@/api/authClient';
 
+const route = useRoute();
 const router = useRouter();
+
+const dashboardLink = computed(() => {
+  if (route.path.startsWith('/dashboard/')) {
+    return route.fullPath;
+  }
+  return '/dashboard/new';
+});
 
 async function onLogout() {
   try {
@@ -28,49 +23,93 @@ async function onLogout() {
 }
 </script>
 
+<template>
+  <header class="app-header">
+    <div class="brand">
+      <router-link to="/">NGNL</router-link>
+      <span>Data Studio</span>
+    </div>
+
+    <nav class="nav">
+      <router-link to="/">Main</router-link>
+      <router-link to="/dashboard/new">Create</router-link>
+      <router-link :to="dashboardLink">Dashboard</router-link>
+      <router-link to="/workspace">Workspace</router-link>
+      <router-link to="/legacy">Legacy</router-link>
+    </nav>
+
+    <button class="logout-btn" type="button" @click="onLogout">Logout</button>
+  </header>
+</template>
+
 <style scoped>
-body,
-html {
-  margin: 0; /* remove default margin */
-  padding: 0; /* remove default padding */
-}
-.Appheader {
-  position: fixed; /* keep header fixed at the top */
-  top: 0;
-  left: 0;
-  width: 100%; /* full width */
-  z-index: 1000; /* render above other elements */
+.app-header {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 1000;
   display: flex;
-  justify-content: flex-start; /* left-align content */
   align-items: center;
-  padding: 10px 20px;
-  background-color: #333;
-  color: white;
+  gap: 18px;
+  padding: 10px 18px;
+  border-bottom: 1px solid rgba(205, 216, 204, 0.9);
+  background: rgba(247, 250, 245, 0.88);
+  backdrop-filter: blur(14px);
 }
 
-.nav ul {
+.brand {
   display: flex;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  gap: 15px;
+  align-items: center;
+  gap: 10px;
+  min-width: 168px;
+}
+
+.brand a {
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #223228;
+}
+
+.brand span {
+  font-size: 12px;
+  color: #667566;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
 }
 
 .nav {
-  margin-left: 0; /* stick to the left */
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
-.nav a {
-  text-decoration: none;
-  color: white;
+
+.nav a,
+.logout-btn {
+  padding: 8px 12px;
+  border: 1px solid #cad4c7;
+  border-radius: 999px;
+  background: #fff;
+  color: #213128;
+  font-size: 13px;
 }
+
+.nav a.router-link-active {
+  border-color: #224d31;
+  background: #224d31;
+  color: #fff;
+}
+
 .logout-btn {
   margin-left: auto;
-  margin-right: 48px;
-  padding: 6px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  border-radius: 999px;
-  background: transparent;
-  color: white;
   cursor: pointer;
+}
+
+@media (max-width: 860px) {
+  .app-header {
+    flex-wrap: wrap;
+  }
+
+  .logout-btn {
+    margin-left: 0;
+  }
 }
 </style>

@@ -1,6 +1,14 @@
-import * as XLSX from 'xlsx';
+let xlsxModulePromise = null;
 
-export function exportXLSX(name, columns, rows, options) {
+async function loadXLSX() {
+  if (!xlsxModulePromise) {
+    xlsxModulePromise = import('xlsx');
+  }
+  return xlsxModulePromise;
+}
+
+export async function exportXLSX(name, columns, rows, options) {
+  const XLSX = await loadXLSX();
   const opts = {
     sample: 2000,
     minWch: 8,

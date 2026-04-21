@@ -1,7 +1,8 @@
 import { db } from './db';
+import { makeId } from '@/utils/id';
 
 export async function saveRecipe(name, content, id) {
-  const doc = { id: id ?? crypto.randomUUID(), name, content, updatedAt: Date.now() };
+  const doc = { id: id ?? makeId('recipe'), name, content, updatedAt: Date.now() };
   await db.recipes.put(doc);
   return doc.id;
 }

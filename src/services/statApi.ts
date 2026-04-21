@@ -75,3 +75,21 @@ export async function runStatOLS(
   return parseJsonResponse(res, 'stat ols failed');
 }
 
+export async function runStatAnova(rows:any[], value:string, group:string){
+  const res = await authFetch('/stat/run', {
+    method:'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify({ op:'anova', rows, args:{ value, group } })
+  });
+  return parseJsonResponse(res, 'stat anova failed');
+}
+
+export async function runStatNormality(rows:any[], column:string){
+  const res = await authFetch('/stat/run', {
+    method:'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify({ op:'normality', rows, args:{ column } })
+  });
+  return parseJsonResponse(res, 'stat normality failed');
+}
+

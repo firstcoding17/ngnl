@@ -3,7 +3,8 @@
     <h2>Legacy Views</h2>
     <p class="subtitle">Use this hub to navigate existing legacy pages and add future view entries.</p>
     <div class="quick-nav">
-      <router-link to="/">Open New Workspace</router-link>
+      <router-link to="/">Open Studio Home</router-link>
+      <router-link to="/workspace">Open Workspace</router-link>
     </div>
 
     <div class="cards">

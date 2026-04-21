@@ -1,12 +1,28 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import { callMcpTool, chatWithMcp, getMcpInfo, getMcpTools } from '@/services/mcpApi';
+import RuntimeStatusBlock from '@/components/RuntimeStatusBlock.vue';
+import { makeId } from '@/utils/id';
+import {
+  buildAnalysisAssistantContext,
+  buildAnalysisAssistantPrompts,
+  buildAnalysisAssistantReply,
+  buildAnalysisAssistantSummary,
+} from '@/utils/analysisAssistant';
 
 const props = defineProps({
   rows: { type: Array, default: () => [] },
   columns: { type: Array, default: () => [] },
   datasetName: { type: String, default: 'untitled' },
   datasetId: { type: String, default: '' },
+  assistantMode: { type: String, default: 'mcp' },
+  dashboardTitle: { type: String, default: '' },
+  dashboardId: { type: String, default: '' },
+  dashboardType: { type: String, default: '' },
+  taskTitle: { type: String, default: '' },
+  taskType: { type: String, default: '' },
+  analysisTitle: { type: String, default: '' },
+  analysisAssistantContext: { type: Object, default: () => ({}) },
   profileSummary: {
     type: Object,
     default: () => ({
@@ -82,7 +98,7 @@ function percentile(sortedValues, p) {
 
 function appendMessage(role, text, extra = {}) {
   messages.value.push({
-    id: crypto.randomUUID(),
+    id: makeId('mcp_message'),
     role,
     mode: extra.mode || '',
     text,
@@ -157,7 +173,7 @@ function triggerCardAction(action) {
 function cloneMessages(source = []) {
   return Array.isArray(source)
     ? source.map((message) => ({
-      id: message.id || crypto.randomUUID(),
+      id: message.id || makeId('mcp_message'),
       role: message.role || 'assistant',
       mode: message.mode || '',
       text: message.text || '',
@@ -603,6 +619,143 @@ const plannerModeMeta = computed(() => {
   return { kind: 'pending', label: 'Planner pending' };
 });
 
+const latestGeneralWarnings = computed(() => {
+  for (let index = messages.value.length - 1; index >= 0; index -= 1) {
+    const warnings = messageGeneralWarnings(messages.value[index]);
+    if (warnings.length) return warnings;
+  }
+  return [];
+});
+
+const panelHeading = computed(() =>
+  props.assistantMode === 'chat' ? 'Dashboard Chat Assistant' : 'MCP Automation Assistant'
+);
+
+const panelSubtitle = computed(() =>
+  props.assistantMode === 'chat'
+    ? 'Ask questions with the current dashboard, task, and dataset context attached.'
+    : 'Inspect tool suggestions, debug MCP calls, and keep the current dashboard context in view.'
+);
+
+const assistantScope = computed(() => {
+  if (props.analysisTitle) return 'Analysis';
+  if (props.taskTitle) return 'Task';
+  return 'Dashboard';
+});
+
+const assistantContextEntries = computed(() => {
+  const reportLabel = analysisAssistantContext.value?.primaryReport?.title || '';
+  const artifactLabel = analysisAssistantContext.value?.primaryArtifact?.kind || '';
+  return [
+    { label: 'Dashboard', value: props.dashboardTitle || 'Untitled dashboard' },
+    {
+      label: 'Scope',
+      value: props.analysisTitle
+        ? `${props.analysisTitle} (analysis)`
+        : props.taskTitle
+          ? `${props.taskTitle}${props.taskType ? ` (${props.taskType})` : ''}`
+          : 'Dashboard-level chat',
+    },
+    { label: 'Dataset', value: props.datasetName || 'untitled' },
+    { label: 'Rows / Cols', value: `${props.rows.length} / ${props.columns.length}` },
+    { label: 'Artifact', value: artifactLabel || 'No saved artifact yet' },
+    { label: 'Report', value: reportLabel || 'No saved report yet' },
+  ];
+});
+
+const analysisAssistantContext = computed(() => buildAnalysisAssistantContext({
+  ...(props.analysisAssistantContext || {}),
+  dataset: {
+    id: props.analysisAssistantContext?.dataset?.id || props.datasetId || '',
+    name: props.analysisAssistantContext?.dataset?.name || props.datasetName || 'untitled',
+    rowCount: props.analysisAssistantContext?.dataset?.rowCount ?? props.rows.length,
+    columnCount: props.analysisAssistantContext?.dataset?.columnCount ?? props.columns.length,
+  },
+  assistantRuntimeArtifact: assistantRuntimeArtifact.value,
+}));
+
+const analysisAssistantSummary = computed(() => buildAnalysisAssistantSummary(analysisAssistantContext.value));
+const analysisAssistantPrompts = computed(() => buildAnalysisAssistantPrompts(analysisAssistantContext.value).slice(0, 6));
+
+const assistantRuntimeArtifact = computed(() => {
+  if (!props.rows.length && !props.columns.length) {
+    return {
+      status: 'blocked',
+      availability: 'blocked',
+      availabilityReason: 'No active dataset is attached to the current chat context.',
+      requirements: ['Select or attach a dataset before using the chat assistant.'],
+    };
+  }
+  if (loading.value && !info.value) {
+    return {
+      status: 'warning',
+      availability: 'warning',
+      availabilityReason: 'Loading MCP chat metadata...',
+    };
+  }
+  if (error.value && !info.value) {
+    return {
+      status: 'blocked',
+      availability: 'blocked',
+      availabilityReason: String(error.value || 'MCP metadata could not be loaded.'),
+      requirements: ['Confirm the frontend can reach /mcp/info and /mcp/tools with the current API base.'],
+    };
+  }
+  if (latestClaudeFallbackWarning.value) {
+    return {
+      status: 'fallback',
+      availability: 'fallback',
+      availabilityReason: latestClaudeFallbackWarning.value,
+      warnings: latestGeneralWarnings.value,
+    };
+  }
+  if (currentChatMode.value === 'claude') {
+    return {
+      status: 'direct',
+      availability: 'direct',
+      availabilityReason: 'Claude-backed MCP planning is active for the current dashboard context.',
+      warnings: latestGeneralWarnings.value,
+    };
+  }
+  if (currentChatMode.value === 'rule-based') {
+    return {
+      status: 'fallback',
+      availability: 'fallback',
+      availabilityReason: 'Rule-based MCP planning is active for the current dashboard context.',
+      warnings: latestGeneralWarnings.value,
+    };
+  }
+  if (error.value && info.value) {
+    return {
+      status: 'warning',
+      availability: 'warning',
+      availabilityReason: `MCP metadata is partially available: ${error.value}`,
+      warnings: latestGeneralWarnings.value,
+    };
+  }
+  if (info.value) {
+    return {
+      status: 'warning',
+      availability: 'warning',
+      availabilityReason: 'Chat is ready. Send the first prompt to establish the active planner path.',
+      warnings: latestGeneralWarnings.value,
+    };
+  }
+  return {
+    status: 'warning',
+    availability: 'warning',
+    availabilityReason: 'MCP metadata has not loaded yet.',
+  };
+});
+
+const assistantRuntimeBadges = computed(() => ([
+  { label: 'Mode', value: props.assistantMode === 'chat' ? 'Chat' : 'MCP' },
+  { label: 'Scope', value: assistantScope.value },
+  { label: 'Tools', value: String(tools.value.length) },
+]).filter((item) => item.value));
+
+const showDebugTools = computed(() => props.assistantMode !== 'chat');
+
 function buildSummaryReply() {
   const flags = datasetFlags.value;
   const lines = [
@@ -879,6 +1032,7 @@ function buildGenericReply(promptText) {
 }
 
 function buildDatasetContext() {
+  const assistantContext = analysisAssistantContext.value;
   return {
     datasetId: props.datasetId || '',
     datasetName: props.datasetName || 'untitled',
@@ -888,6 +1042,34 @@ function buildDatasetContext() {
     sampleRows: takeSampleRows(props.rows, 40),
     profileSummary: props.profileSummary,
     workspaceDatasets: Array.isArray(props.workspaceDatasets) ? props.workspaceDatasets : [],
+    dashboardContext: {
+      dashboardId: props.dashboardId || '',
+      dashboardTitle: props.dashboardTitle || '',
+      dashboardType: props.dashboardType || '',
+    },
+    taskContext: props.taskTitle
+      ? {
+          title: props.taskTitle,
+          type: props.taskType || '',
+        }
+      : null,
+    analysisContext: props.analysisTitle
+      ? {
+          title: props.analysisTitle,
+        }
+      : null,
+    assistantMode: props.assistantMode || 'mcp',
+    analysisAssistantContext: {
+      dashboard: assistantContext.dashboard || {},
+      task: assistantContext.task || null,
+      analysis: assistantContext.analysis || null,
+      dataset: assistantContext.dataset || null,
+      artifacts: assistantContext.artifacts || {},
+      primaryArtifact: assistantContext.primaryArtifact || null,
+      primaryReport: assistantContext.primaryReport || null,
+      resultRuntimeArtifact: assistantContext.resultRuntimeArtifact || null,
+      assistantRuntimeArtifact: assistantContext.assistantRuntimeArtifact || null,
+    },
   };
 }
 
@@ -2080,6 +2262,10 @@ function summarizeToolExecution(tool, wrappedResult, label, context = {}) {
 }
 
 async function runSuggestion(suggestion, messageId = '', index = 0) {
+  if (suggestion?.prompt && !suggestion?.tool) {
+    await sendPrompt(suggestion.prompt);
+    return;
+  }
   if (!suggestion?.tool) return;
   if (!confirmToolExecution(suggestion.tool, suggestion.label)) return;
   const key = `${messageId}:${index}:${suggestion.tool}`;
@@ -2117,22 +2303,43 @@ async function sendPrompt(text) {
     }));
     const res = await chatWithMcp(promptText, buildDatasetContext(), history);
     const data = res?.data || {};
+    const assistantReply = props.assistantMode === 'chat'
+      ? buildAnalysisAssistantReply(promptText, analysisAssistantContext.value)
+      : null;
     appendMessage(
       'assistant',
-      data.reply || buildGenericReply(promptText),
+      assistantReply?.text || data.reply || buildGenericReply(promptText),
       {
-        mode: data.mode || '',
-        suggestions: data.suggestions || [],
-        warnings: data.warnings || [],
-        cards: data.cards || [],
+        mode: data.mode || (props.assistantMode === 'chat' ? 'analysis-assistant' : ''),
+        suggestions: assistantReply?.suggestions || data.suggestions || [],
+        warnings: [
+          ...(Array.isArray(data.warnings) ? data.warnings : []),
+          ...(Array.isArray(assistantReply?.warnings) ? assistantReply.warnings : []),
+        ],
+        cards: assistantReply?.cards || data.cards || [],
         toolCalls: data.toolCalls || [],
       }
     );
   } catch (e) {
-    appendErrorMessage('MCP chat request', e);
-    appendMessage('assistant', buildGenericReply(promptText), {
-      suggestions: buildLocalSuggestions(),
-    });
+    const assistantReply = props.assistantMode === 'chat'
+      ? buildAnalysisAssistantReply(promptText, analysisAssistantContext.value)
+      : null;
+    if (props.assistantMode === 'chat') {
+      appendMessage('assistant', assistantReply?.text || buildGenericReply(promptText), {
+        mode: 'analysis-assistant',
+        cards: assistantReply?.cards || [],
+        suggestions: assistantReply?.suggestions || buildLocalSuggestions(),
+        warnings: [
+          ...(Array.isArray(assistantReply?.warnings) ? assistantReply.warnings : []),
+          `Chat endpoint fallback: ${String(e?.message || e || 'local analysis assistant used')}`,
+        ],
+      });
+    } else {
+      appendErrorMessage('MCP chat request', e);
+      appendMessage('assistant', buildGenericReply(promptText), {
+        suggestions: buildLocalSuggestions(),
+      });
+    }
   } finally {
     chatBusy.value = false;
   }
@@ -2225,8 +2432,8 @@ watch(() => [props.datasetName, props.rows.length, props.columns.length], () => 
   <div class="mcp-shell border rounded p-3 space-y-3">
     <div class="flex items-center gap-2">
       <div>
-        <div class="font-semibold">MCP Chat Assistant</div>
-        <div class="text-xs text-gray-500">Phase 6: dataset-aware chat, session memory, and export summary</div>
+        <div class="font-semibold">{{ panelHeading }}</div>
+        <div class="text-xs text-gray-500">{{ panelSubtitle }}</div>
       </div>
       <span class="dataset-badge">{{ datasetName || 'untitled' }}</span>
       <span class="mode-badge" :class="plannerModeMeta.kind">{{ plannerModeMeta.label }}</span>
@@ -2236,6 +2443,40 @@ watch(() => [props.datasetName, props.rows.length, props.columns.length], () => 
     </div>
 
     <div class="state" :class="panelState.kind">{{ panelState.text }}</div>
+
+    <RuntimeStatusBlock
+      :artifact="assistantRuntimeArtifact"
+      :badges="assistantRuntimeBadges"
+      compact
+      data-testid="assistant-runtime-status"
+    />
+
+    <div class="assistant-context" data-testid="assistant-context">
+      <div v-for="entry in assistantContextEntries" :key="entry.label" class="assistant-context__item">
+        <span>{{ entry.label }}</span>
+        <strong>{{ entry.value }}</strong>
+      </div>
+    </div>
+
+    <div v-if="assistantMode === 'chat'" class="analysis-assistant-focus" data-testid="analysis-assistant-summary">
+      <div class="analysis-assistant-focus__head">
+        <div>
+          <div class="analysis-assistant-focus__kicker">Current focus</div>
+          <strong>{{ analysisAssistantSummary.title }}</strong>
+        </div>
+        <span :class="['analysis-assistant-focus__chip', `is-${analysisAssistantSummary.runtimeState || 'warning'}`]">
+          {{ analysisAssistantSummary.runtimeState || 'warning' }}
+        </span>
+      </div>
+      <div class="analysis-assistant-focus__body">
+        <p v-if="analysisAssistantSummary.taskTitle"><b>Task</b>: {{ analysisAssistantSummary.taskTitle }}</p>
+        <p v-if="analysisAssistantSummary.analysisTitle"><b>Analysis</b>: {{ analysisAssistantSummary.analysisTitle }}</p>
+        <p>{{ analysisAssistantSummary.scope }}</p>
+        <p>{{ analysisAssistantSummary.dataset }}</p>
+        <p><b>{{ analysisAssistantSummary.resultLabel }}</b></p>
+        <p>{{ analysisAssistantSummary.resultSummary }}</p>
+      </div>
+    </div>
 
     <div v-if="latestClaudeFallbackWarning" class="claude-fallback-banner">
       <div class="claude-fallback-title">Claude fallback mode</div>
@@ -2270,6 +2511,22 @@ watch(() => [props.datasetName, props.rows.length, props.columns.length], () => 
       <button v-if="workspaceFacts.count > 1" @click="applyQuickAction('compareFormal')">Plan formal compares</button>
     </div>
 
+    <div v-if="assistantMode === 'chat'" class="assistant-prompts" data-testid="assistant-question-prompts">
+      <div class="assistant-prompts__head">Suggested questions</div>
+      <div class="assistant-prompts__grid">
+        <button
+          v-for="prompt in analysisAssistantPrompts"
+          :key="prompt.label"
+          type="button"
+          class="assistant-prompts__button"
+          @click="sendPrompt(prompt.prompt)"
+        >
+          <span>{{ prompt.label }}</span>
+          <small>{{ prompt.reason }}</small>
+        </button>
+      </div>
+    </div>
+
     <div class="chat-log">
       <div v-for="message in messages" :key="message.id" class="message" :class="message.role">
         <div class="message-role">{{ message.role === 'assistant' ? 'Assistant' : 'You' }}</div>
@@ -2296,13 +2553,20 @@ watch(() => [props.datasetName, props.rows.length, props.columns.length], () => 
             <div class="message-suggestion-title">{{ suggestion.label }}</div>
             <div class="message-suggestion-body">{{ suggestion.reason }}</div>
             <div v-if="suggestion.tool" class="message-suggestion-tool">tool: {{ suggestion.tool }}</div>
+            <div v-else-if="suggestion.prompt" class="message-suggestion-tool">question</div>
             <button
-              v-if="suggestion.tool"
+              v-if="suggestion.tool || suggestion.prompt"
               class="message-suggestion-action"
               @click="runSuggestion(suggestion, message.id, index)"
-              :disabled="runningSuggestionKey === `${message.id}:${index}:${suggestion.tool}`"
+              :disabled="suggestion.tool && runningSuggestionKey === `${message.id}:${index}:${suggestion.tool}`"
             >
-              {{ runningSuggestionKey === `${message.id}:${index}:${suggestion.tool}` ? 'Running...' : 'Run suggestion' }}
+              {{
+                suggestion.tool && runningSuggestionKey === `${message.id}:${index}:${suggestion.tool}`
+                  ? 'Running...'
+                  : suggestion.prompt
+                    ? 'Ask question'
+                    : 'Run suggestion'
+              }}
             </button>
           </div>
         </div>
@@ -2337,7 +2601,7 @@ watch(() => [props.datasetName, props.rows.length, props.columns.length], () => 
       <button @click="sendPrompt()" :disabled="chatBusy || !draft.trim()">{{ chatBusy ? 'Thinking...' : 'Send' }}</button>
     </div>
 
-    <details class="debug-box">
+    <details v-if="showDebugTools" class="debug-box">
       <summary class="font-medium">MCP tool debug</summary>
       <div class="grid md:grid-cols-2 gap-3 mt-3">
         <label>
@@ -2478,6 +2742,97 @@ label {
   background: rgba(255, 255, 255, 0.85);
 }
 
+.assistant-context {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.assistant-context__item {
+  border: 1px solid #dbe7dd;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #fcfdfb;
+  display: grid;
+  gap: 4px;
+}
+
+.assistant-context__item span {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #5f6f63;
+}
+
+.assistant-context__item strong {
+  font-size: 13px;
+  color: #1f3325;
+  line-height: 1.4;
+}
+
+.analysis-assistant-focus {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid #dbe4ee;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
+}
+
+.analysis-assistant-focus__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.analysis-assistant-focus__kicker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.analysis-assistant-focus__chip {
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.analysis-assistant-focus__chip.is-direct {
+  background: #ecfdf5;
+  color: #166534;
+}
+
+.analysis-assistant-focus__chip.is-fallback {
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.analysis-assistant-focus__chip.is-warning {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.analysis-assistant-focus__chip.is-blocked {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.analysis-assistant-focus__body {
+  display: grid;
+  gap: 6px;
+}
+
+.analysis-assistant-focus__body p {
+  margin: 0;
+  color: #334155;
+  line-height: 1.5;
+}
+
 .claude-fallback-banner {
   border: 1px solid #f59e0b;
   border-radius: 12px;
@@ -2519,6 +2874,41 @@ label {
 
 .quick-actions button {
   background: #ffffff;
+}
+
+.assistant-prompts {
+  display: grid;
+  gap: 10px;
+}
+
+.assistant-prompts__head {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+.assistant-prompts__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.assistant-prompts__button {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid #dbe4ee;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.assistant-prompts__button small {
+  color: #64748b;
+  line-height: 1.35;
 }
 
 .chat-log {

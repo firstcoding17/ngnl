@@ -1,5 +1,6 @@
 import { db } from './db'; // Dexie instance
 import type { ChartSpec } from '@/types/chartSpec';
+import { makeId } from '@/utils/id';
 
 type ChartDoc = {
   id: string;
@@ -11,7 +12,7 @@ type ChartDoc = {
 
 export async function saveChart(name: string, spec: ChartSpec, id?: string) {
   const doc: ChartDoc = {
-    id: id ?? crypto.randomUUID(),
+    id: id ?? makeId('chart'),
     name,
     spec,
     createdAt: Date.now(),

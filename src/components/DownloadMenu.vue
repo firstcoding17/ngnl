@@ -10,10 +10,10 @@ const props = defineProps({
 });
 const fmt = ref('xlsx');
 
-function download() {
+async function download() {
   if (!props.columns?.length) return;
   if (fmt.value === 'csv') exportCSV(props.name, props.columns, props.rows);
-  else exportXLSX(props.name, props.columns, props.rows);
+  else await exportXLSX(props.name, props.columns, props.rows);
 }
 </script>
 

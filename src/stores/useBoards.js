@@ -1,8 +1,9 @@
 import { db } from './db';
+import { makeId } from '@/utils/id';
 
 export async function saveBoard(name, items, id) {
   const doc = {
-    id: id ?? crypto.randomUUID(),
+    id: id ?? makeId('board'),
     name,
     items,
     createdAt: Date.now(),

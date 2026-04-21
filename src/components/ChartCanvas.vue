@@ -14,6 +14,27 @@ const emit = defineEmits(['clickFilter', 'focusRow']);
 const el = ref(null);
 let plot = null;
 
+function stripUndefined(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripUndefined(item));
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, entryValue]) => entryValue !== undefined)
+        .map(([key, entryValue]) => [key, stripUndefined(entryValue)])
+    );
+  }
+  return value;
+}
+
+function resetPlot() {
+  if (plot && el.value) {
+    Plotly.purge(el.value);
+    plot = null;
+  }
+}
+
 const palettes = {
   default: undefined,
   pastel: ['#a6cee3', '#b2df8a', '#fb9a99', '#fdbf6f', '#cab2d6', '#ffff99'],
@@ -79,10 +100,11 @@ function plotFromFigJson(figJson) {
 
   try {
     const parsed = JSON.parse(figJson);
-    const data = Array.isArray(parsed?.data) ? parsed.data : [];
-    const layout = parsed?.layout || {};
+    const data = stripUndefined(Array.isArray(parsed?.data) ? parsed.data : []);
+    const layout = stripUndefined(parsed?.layout || {});
     const conf = { displaylogo: false, modeBarButtonsToRemove: ['lasso2d', 'select2d'] };
 
+    resetPlot();
     Promise.resolve(Plotly.newPlot(el.value, data, layout, conf)).then((p) => {
       plot = p;
       bindClickHandlers();
@@ -362,7 +384,8 @@ function plotFromSpec() {
   }
 
     const conf = { displaylogo: false, modeBarButtonsToRemove: ['lasso2d', 'select2d'] };
-    Promise.resolve(Plotly.newPlot(el.value, data, layout, conf)).then((p) => {
+    resetPlot();
+    Promise.resolve(Plotly.newPlot(el.value, stripUndefined(data), stripUndefined(layout), conf)).then((p) => {
       plot = p;
       bindClickHandlers();
     }).catch((error) => {
@@ -400,10 +423,7 @@ watch(() => [props.rows, props.columns], build, { deep: true });
 watch(() => props.figJson, build);
 onMounted(build);
 onBeforeUnmount(() => {
-  if (plot && el.value) {
-    Plotly.purge(el.value);
-    plot = null;
-  }
+  resetPlot();
 });
 
 defineExpose({ toImage });

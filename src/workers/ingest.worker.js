@@ -1,6 +1,5 @@
 // @ts-nocheck
 import Papa from 'papaparse';
-import * as XLSX from 'xlsx';
 
 self.onmessage = async (e) => {
   const { type, payload } = e.data;
@@ -69,6 +68,7 @@ async function parseCSVFile(file){
 }
 
 async function parseXLSXFile(file){
+  const XLSX = await import('xlsx');
   self.postMessage({ type:'PROGRESS', ok:true, data:{ mode:'xlsx', pct:null }}); // indeterminate
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: 'array' });
