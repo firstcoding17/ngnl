@@ -2,13 +2,8 @@ const path = require('path');
 const { test, expect } = require('./fixtures/test');
 
 const API_KEY = String(process.env.PLAYWRIGHT_TEST_API_KEY || '').trim();
-const API_BASE = String(process.env.PLAYWRIGHT_API_BASE || 'http://127.0.0.1:5100').replace(/\/+$/, '');
 const CSV_FIXTURE = path.resolve(__dirname, 'fixtures', 'abb.csv');
 
-async function resetBackend(request) {
-  const response = await request.post(`${API_BASE}/__e2e__/reset`);
-  expect(response.ok()).toBeTruthy();
-}
 
 async function enterWorkspace(page) {
   await page.goto('/key');
@@ -16,6 +11,11 @@ async function enterWorkspace(page) {
   const verifyResponse = page.waitForResponse((response) => response.url().includes('/auth/verify'));
   await page.getByTestId('api-key-submit').click();
   return verifyResponse;
+}
+
+async function openWorkspace(page) {
+  await page.goto('/workspace');
+  await expect(page.getByTestId('workspace-shell')).toBeVisible();
 }
 
 async function uploadFixture(page) {
@@ -43,26 +43,25 @@ test.beforeAll(() => {
   }
 });
 
-test.beforeEach(async ({ request }) => {
-  await resetBackend(request);
-});
 
-test('scenario 1: key entry verifies and enters workspace', async ({ page }) => {
+test('scenario 1: key entry verifies and enters the dashboard home', async ({ page }) => {
   const response = await enterWorkspace(page);
   expect((await response).status()).toBe(200);
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByTestId('workspace-shell')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Data Workspace' })).toBeVisible();
+  await expect(page.locator('.home-view')).toBeVisible();
+  await expect(page.getByText('NGNL Studio')).toBeVisible();
 });
 
 test('scenario 2: csv upload shows logs, preview, and data grid', async ({ page }) => {
   await enterWorkspace(page);
+  await openWorkspace(page);
   await uploadFixture(page);
   await expectGridVisible(page);
 });
 
 test('scenario 3: refresh restores workspace draft', async ({ page }) => {
   await enterWorkspace(page);
+  await openWorkspace(page);
   await uploadFixture(page);
   await page.reload();
   await expect(page.getByTestId('workspace-shell')).toBeVisible();
@@ -81,7 +80,7 @@ test('scenario 4: duplicate access is blocked for another browser context', asyn
   try {
     const firstResponse = await enterWorkspace(firstPage);
     expect((await firstResponse).status()).toBe(200);
-    await expect(firstPage.getByTestId('workspace-shell')).toBeVisible();
+    await openWorkspace(firstPage);
 
     await secondPage.goto('/key');
     await secondPage.getByTestId('api-key-input').fill(API_KEY);
@@ -97,6 +96,7 @@ test('scenario 4: duplicate access is blocked for another browser context', asyn
 
 test('scenario 5: workspace log updates, save is enabled, and recent datasets render', async ({ page }) => {
   await enterWorkspace(page);
+  await openWorkspace(page);
   await uploadFixture(page);
 
   const saveButton = page.getByTestId('save-current-dataset');

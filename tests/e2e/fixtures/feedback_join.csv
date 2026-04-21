@@ -1,0 +1,5 @@
+customer_id,review,sentiment_hint
+u1,"Helpful support and clear reports",positive
+u2,"Setup was confusing but eventually worked",mixed
+u3,"Fast dashboard and very reliable exports",positive
+u4,"Wanted more onboarding help for the first run",mixed

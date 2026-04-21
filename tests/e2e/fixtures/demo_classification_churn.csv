@@ -1,0 +1,11 @@
+plan,tenure_months,monthly_sessions,support_tickets,churn
+basic,2,6,4,yes
+basic,3,8,3,yes
+basic,5,10,3,yes
+pro,8,16,1,no
+pro,10,18,1,no
+pro,12,20,0,no
+enterprise,15,24,1,no
+enterprise,18,28,0,no
+basic,4,9,4,yes
+pro,9,17,2,no

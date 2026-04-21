@@ -1,0 +1,5 @@
+image_path,label
+"/samples/paid_invoice_april_2026.png",paid
+"/samples/overdue_notice_reminder.png",overdue
+"/samples/shipping_label_fragile_box.png",shipping
+"/samples/refund_request_form.png",refund

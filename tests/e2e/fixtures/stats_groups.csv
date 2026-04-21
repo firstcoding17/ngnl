@@ -1,0 +1,7 @@
+group,segment,score,spend
+A,retained,10,100
+A,churn,12,112
+A,retained,11,106
+B,churn,20,208
+B,retained,18,192
+B,churn,19,201
