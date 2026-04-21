@@ -14,6 +14,7 @@ module.exports = defineConfig({
     timeout: 10_000,
   },
   fullyParallel: false,
+  workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: [

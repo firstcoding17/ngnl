@@ -5,9 +5,12 @@
   "scripts": {
     "serve": "vue-cli-service serve",
     "serve:e2e": "vue-cli-service serve --host 127.0.0.1 --port 4173",
-    "build": "vue-cli-service build",
+    "build": "node scripts/run-build.js",
+    "build:local-staging": "node scripts/run-build.js local-staging",
+    "build:deploy": "node scripts/run-build.js deploy",
     "lint": "vue-cli-service lint",
     "test:e2e": "npx playwright test",
+    "test:e2e:deploy-preflight": "npx playwright test tests/e2e/deploy-preflight.spec.js",
     "test:e2e:headed": "npx playwright test --headed",
     "test:e2e:install": "npx playwright install chromium",
     "test:stat-view": "node scripts/test_stat_view_regression.js",
